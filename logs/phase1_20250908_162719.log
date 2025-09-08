@@ -1,0 +1,14 @@
+2025-09-08 16:27:19,304 - __main__ - INFO - Initializing database and configuration...
+2025-09-08 16:27:19,311 - core.database - INFO - Connected to database: nedis_synthetic.duckdb
+2025-09-08 16:27:19,312 - core.database - ERROR - Failed to setup schemas: Binder Error: Ambiguous reference to catalog or schema "nedis_synthetic" - use a fully qualified path like "nedis_synthetic.nedis_synthetic"
+2025-09-08 16:27:19,312 - __main__ - ERROR - Phase 1 execution failed: Binder Error: Ambiguous reference to catalog or schema "nedis_synthetic" - use a fully qualified path like "nedis_synthetic.nedis_synthetic"
+2025-09-08 16:27:19,313 - __main__ - ERROR - Traceback: Traceback (most recent call last):
+  File "/Users/sjlee/Projects/nedis-synthetic-data/scripts/run_phase1.py", line 262, in main
+    db_manager = DatabaseManager()
+                 ^^^^^^^^^^^^^^^^^
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/core/database.py", line 31, in __init__
+    self._setup_schemas()
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/core/database.py", line 48, in _setup_schemas
+    self.conn.execute(schema_sql)
+duckdb.duckdb.BinderException: Binder Error: Ambiguous reference to catalog or schema "nedis_synthetic" - use a fully qualified path like "nedis_synthetic.nedis_synthetic"
+

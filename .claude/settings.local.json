@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(sqlite3:*)",
+      "Bash(duckdb:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

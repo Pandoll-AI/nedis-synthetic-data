@@ -1,0 +1,75 @@
+# NEDIS 합성 데이터 생성 파라미터 설정
+
+database:
+  db_path: "nedis_sample.duckdb"
+  batch_size: 10000
+  checkpoint_interval: 100000
+
+population:
+  dirichlet_alpha: 1.0
+  target_total_records: 322573
+
+temporal:
+  nhpp_seasonal_weights:
+    spring: 0.25
+    summer: 0.25
+    fall: 0.25
+    winter: 0.25
+  holidays_2017:
+    - "20170101"  # 신정
+    - "20170127"  # 설날 연휴
+    - "20170128"
+    - "20170129"
+    - "20170130"
+    - "20170301"  # 3.1절
+    - "20170503"  # 어린이날
+    - "20170506"  # 어린이날 대체공휴일
+    - "20170509"  # 부처님오신날
+    - "20170815"  # 광복절
+    - "20171003"  # 추석 연휴
+    - "20171004"
+    - "20171005"
+    - "20171006"
+    - "20171009"  # 한글날
+    - "20171225"  # 성탄절
+
+allocation:
+  gravity_gamma: 1.5
+  ipf_tolerance: 0.001
+  ipf_max_iterations: 100
+  capacity_buffer_multiplier: 2.0
+
+clinical:
+  ktas_smoothing: 1.0
+  diagnosis_min_count: 10
+  bayesian_alpha: 1.0
+  
+temporal_patterns:
+  duration_sigma: 0.5
+  vitals_measurement_rates:
+    ktas_1: 1.0
+    ktas_2: 0.95
+    ktas_3: 0.85
+    ktas_4: 0.70
+    ktas_5: 0.50
+
+validation:
+  statistical_alpha: 0.05
+  privacy_k_anonymity: 5
+  ks_test_threshold: 0.05
+  chi2_test_threshold: 0.05
+  correlation_threshold: 0.05
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_max_bytes: 10485760  # 10MB
+  backup_count: 3
+
+optimization:
+  bayesian_n_calls: 50
+  objective_weights:
+    fidelity: 0.3
+    utility: 0.3
+    privacy: 0.2
+    clinical: 0.2

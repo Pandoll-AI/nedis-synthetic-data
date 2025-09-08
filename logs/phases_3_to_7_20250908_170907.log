@@ -1,0 +1,7 @@
+2025-09-08 17:09:07,154 - __main__ - INFO - === NEDIS Synthetic Data Pipeline - Phases 3-7 ===
+2025-09-08 17:09:07,154 - __main__ - INFO - Phases to run: 3
+2025-09-08 17:09:07,154 - __main__ - INFO - Sample days: 1
+2025-09-08 17:09:07,154 - __main__ - INFO - Validation sample size: 50000
+2025-09-08 17:09:07,215 - src.core.database - INFO - Connected to database: nedis_synthetic.duckdb
+2025-09-08 17:09:07,226 - src.core.database - ERROR - Failed to setup schemas: Binder Error: Ambiguous reference to catalog or schema "nedis_synthetic" - use a fully qualified path like "nedis_synthetic.nedis_synthetic"
+2025-09-08 17:09:07,226 - __main__ - ERROR - Pipeline execution failed: Binder Error: Ambiguous reference to catalog or schema "nedis_synthetic" - use a fully qualified path like "nedis_synthetic.nedis_synthetic"

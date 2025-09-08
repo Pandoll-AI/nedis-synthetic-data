@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEDIS 역학 분석 대시보드 - 원본 vs 합성 데이터</title>
+    
+    <!-- CSS Dependencies -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary-color: #2c3e50;
+            --secondary-color: #3498db;
+            --accent-color: #e74c3c;
+            --success-color: #27ae60;
+            --warning-color: #f39c12;
+            --light-bg: #ecf0f1;
+            --dark-text: #2c3e50;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--light-bg);
+            color: var(--dark-text);
+        }
+
+        .navbar {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .navbar-brand {
+            font-weight: 700;
+            font-size: 1.5rem;
+        }
+
+        .main-container {
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+        }
+
+        .card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            margin-bottom: 2rem;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+        }
+
+        .card-header {
+            border-radius: 15px 15px 0 0 !important;
+            background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
+            color: white;
+            border: none;
+            padding: 1.5rem;
+        }
+
+        .card-header h5 {
+            margin: 0;
+            font-weight: 600;
+        }
+
+        .card-body {
+            padding: 2rem;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+            padding: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 1rem 0;
+        }
+
+        .chart-container-large {
+            height: 500px;
+        }
+
+        .filter-section {
+            background: white;
+            padding: 2rem;
+            border-radius: 15px;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.08);
+        }
+
+        .filter-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .filter-group label {
+            font-weight: 600;
+            color: var(--primary-color);
+            margin-bottom: 0.5rem;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
+            border: none;
+            border-radius: 25px;
+            padding: 0.75rem 2rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            transform: translateY(-2px);
+        }
+
+        .alert {
+            border: none;
+            border-radius: 10px;
+            padding: 1.5rem;
+        }
+
+        .alert-info {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+
+        .alert-warning {
+            background: linear-gradient(135deg, #f093fb, #f5576c);
+            color: white;
+        }
+
+        .table {
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .table thead th {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            font-weight: 600;
+        }
+
+        .table tbody tr:hover {
+            background-color: rgba(52, 152, 219, 0.1);
+        }
+
+        .progress {
+            height: 10px;
+            border-radius: 5px;
+            background-color: #e9ecef;
+        }
+
+        .progress-bar {
+            border-radius: 5px;
+        }
+
+        /* 반응형 디자인 */
+        @media (max-width: 768px) {
+            .chart-container {
+                height: 300px;
+            }
+            
+            .stat-value {
+                font-size: 2rem;
+            }
+            
+            .card-body {
+                padding: 1rem;
+            }
+        }
+
+        /* 로딩 스피너 */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 3rem;
+        }
+
+        .spinner-border {
+            width: 3rem;
+            height: 3rem;
+            color: var(--secondary-color);
+        }
+
+        /* 탭 스타일 */
+        .nav-tabs .nav-link {
+            border: none;
+            border-radius: 10px 10px 0 0;
+            color: var(--primary-color);
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+
+        .nav-tabs .nav-link.active {
+            background: var(--secondary-color);
+            color: white;
+        }
+
+        .tab-content {
+            background: white;
+            border-radius: 0 15px 15px 15px;
+            padding: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand">
+                <i class="fas fa-chart-line me-2"></i>
+                NEDIS 역학 분석 대시보드
+            </span>
+            <div class="d-flex">
+                <span class="text-light me-3">
+                    <i class="fas fa-database me-1"></i>
+                    원본 vs 합성 데이터 비교
+                </span>
+                <span class="text-light me-3" id="dataVersionInfo">
+                    <i class="fas fa-info-circle me-1"></i>
+                    <span id="dataVersion">로딩 중...</span>
+                </span>
+                <div class="btn-group me-2">
+                    <button class="btn btn-outline-light btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+                        <i class="fas fa-cog me-1"></i>데이터 버전
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="?sample=true">샘플 데이터 (5KB)</a></li>
+                        <li><a class="dropdown-item" href="?optimized=true">최적화 데이터 (6MB)</a></li>
+                        <li><a class="dropdown-item" href="?">전체 데이터 (기본값)</a></li>
+                    </ul>
+                </div>
+                <button class="btn btn-outline-light btn-sm" onclick="refreshData()">
+                    <i class="fas fa-sync-alt me-1"></i>새로고침
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid main-container">
+        <!-- 로딩 표시 -->
+        <div id="loadingIndicator" class="loading">
+            <div class="spinner-border" role="status">
+                <span class="visually-hidden">로딩 중...</span>
+            </div>
+            <p class="mt-3">역학 데이터를 분석하고 있습니다...</p>
+        </div>
+
+        <!-- 주요 통계 카드들 -->
+        <div class="row" id="statsCards">
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="totalRecords">-</div>
+                    <div class="stat-label">총 분석 레코드</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="ageGroups">-</div>
+                    <div class="stat-label">연령군 수</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="ktasLevels">-</div>
+                    <div class="stat-label">KTAS 중증도 단계</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="stat-value" id="regions">-</div>
+                    <div class="stat-label">분석 지역 수</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 필터 섹션 -->
+        <div class="filter-section">
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="filter-group">
+                        <label>분석 영역</label>
+                        <select class="form-select" id="analysisType">
+                            <option value="all">전체 분석</option>
+                            <option value="demographics">인구학적 분석</option>
+                            <option value="disease">질병 역학</option>
+                            <option value="temporal">시간 역학</option>
+                            <option value="clinical">임상 역학</option>
+                            <option value="spatial">공간 역학</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="filter-group">
+                        <label>데이터 타입</label>
+                        <select class="form-select" id="dataType">
+                            <option value="both">원본 + 합성</option>
+                            <option value="sample">원본만</option>
+                            <option value="synthetic">합성만</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="filter-group">
+                        <label>시각화 타입</label>
+                        <select class="form-select" id="chartType">
+                            <option value="bar">막대 차트</option>
+                            <option value="pie">원형 차트</option>
+                            <option value="line">선형 차트</option>
+                            <option value="heatmap">히트맵</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="filter-group">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-primary w-100" onclick="applyFilters()">
+                            <i class="fas fa-filter me-1"></i>필터 적용
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 메인 탭 영역 -->
+        <div class="card">
+            <div class="card-header">
+                <ul class="nav nav-tabs card-header-tabs" id="mainTabs">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#demographics">인구학적 분석</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#disease">질병 역학</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#temporal">시간 역학</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#clinical">임상 역학</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#spatial">공간 역학</a>
+                    </li>
+                </ul>
+            </div>
+            
+            <div class="tab-content">
+                <!-- 인구학적 분석 탭 -->
+                <div class="tab-pane fade show active" id="demographics">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5><i class="fas fa-users me-2"></i>연령별 분포</h5>
+                            <div class="chart-container">
+                                <canvas id="ageDistributionChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h5><i class="fas fa-venus-mars me-2"></i>성별 분포</h5>
+                            <div class="chart-container">
+                                <canvas id="sexDistributionChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <h5><i class="fas fa-map me-2"></i>지역별 분포</h5>
+                            <div class="chart-container">
+                                <canvas id="regionDistributionChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 질병 역학 탭 -->
+                <div class="tab-pane fade" id="disease">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <h5><i class="fas fa-heartbeat me-2"></i>KTAS 중증도 분포</h5>
+                            <div class="chart-container">
+                                <canvas id="ktasDistributionChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <h5><i class="fas fa-info-circle me-2"></i>중증도 설명</h5>
+                            <div class="alert alert-info">
+                                <h6>KTAS (한국형 응급환자 분류도구)</h6>
+                                <ul class="mb-0">
+                                    <li><strong>Level 1:</strong> 소생술 (즉시 치료)</li>
+                                    <li><strong>Level 2:</strong> 응급 (10분 이내)</li>
+                                    <li><strong>Level 3:</strong> 긴급 (30분 이내)</li>
+                                    <li><strong>Level 4:</strong> 준긴급 (1시간 이내)</li>
+                                    <li><strong>Level 5:</strong> 비긴급 (2시간 이내)</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <h5><i class="fas fa-chart-area me-2"></i>연령별 중증도 패턴</h5>
+                            <div class="chart-container">
+                                <canvas id="ageKtasHeatmap"></canvas>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h5><i class="fas fa-chart-pie me-2"></i>성별 중증도 패턴</h5>
+                            <div class="chart-container">
+                                <canvas id="sexKtasChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 시간 역학 탭 -->
+                <div class="tab-pane fade" id="temporal">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h5><i class="fas fa-calendar me-2"></i>월별 방문 패턴</h5>
+                            <div class="chart-container">
+                                <canvas id="monthlyPatternChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <h5><i class="fas fa-calendar-week me-2"></i>요일별 방문 패턴</h5>
+                            <div class="chart-container">
+                                <canvas id="weekdayPatternChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <h5><i class="fas fa-clock me-2"></i>시간별 방문 패턴</h5>
+                            <div class="chart-container">
+                                <canvas id="hourlyPatternChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 임상 역학 탭 -->
+                <div class="tab-pane fade" id="clinical">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <h5><i class="fas fa-notes-medical me-2"></i>생체징후 분석</h5>
+                            <div class="chart-container">
+                                <canvas id="vitalSignsChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <h5><i class="fas fa-table me-2"></i>생체징후 통계</h5>
+                            <div class="table-responsive">
+                                <table class="table table-striped" id="vitalSignsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>지표</th>
+                                            <th>평균값</th>
+                                            <th>완성도</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- 동적 데이터 삽입 -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <h5><i class="fas fa-chart-line me-2"></i>KTAS별 생체징후 패턴</h5>
+                            <div class="chart-container">
+                                <canvas id="ktasVitalPatternsChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 공간 역학 탭 -->
+                <div class="tab-pane fade" id="spatial">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <h5><i class="fas fa-hospital me-2"></i>병원별 환자 분포</h5>
+                            <div class="chart-container">
+                                <canvas id="hospitalDistributionChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <h5><i class="fas fa-map-marked-alt me-2"></i>지역별 중증도</h5>
+                            <div class="chart-container">
+                                <canvas id="regionSeverityChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 통계적 검정 결과 -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-chart-bar me-2"></i>통계적 검정 결과</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="statisticalTests">
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle me-2"></i>
+                                합성 데이터가 생성되면 원본 데이터와의 통계적 비교가 표시됩니다.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.3.0/dist/chart.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+    <script>
+        // 전역 변수
+        let epidemiologicData = null;
+        let charts = {};
+
+        // 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            loadEpidemiologicData();
+        });
+
+        // 역학 데이터 로드 (대용량 JSON 처리 개선)
+        async function loadEpidemiologicData() {
+            showLoading(true);
+            
+            try {
+                console.log('Starting to fetch epidemiologic data...');
+                // 데이터 파일 선택: 샘플, 최적화, 또는 원본
+                let dataFile;
+                if (window.location.search.includes('sample=true')) {
+                    dataFile = 'epidemiologic_analysis_sample.json';
+                } else if (window.location.search.includes('optimized=true')) {
+                    dataFile = 'epidemiologic_analysis_optimized.json';
+                } else {
+                    // 기본적으로 최적화된 버전 사용 (대용량 원본 대신)
+                    dataFile = 'epidemiologic_analysis_optimized.json';
+                }
+                
+                console.log(`Using data file: ${dataFile}`);
+                
+                // 데이터 버전 정보 업데이트
+                updateDataVersionInfo(dataFile);
+                    
+                const response = await fetch(dataFile, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: 분석 데이터를 찾을 수 없습니다.`);
+                }
+                
+                const contentLength = response.headers.get('Content-Length');
+                if (contentLength) {
+                    console.log(`Loading ${(parseInt(contentLength) / (1024*1024)).toFixed(1)}MB of data...`);
+                }
+                
+                // 대용량 JSON을 스트리밍으로 읽기
+                const text = await response.text();
+                console.log('Data received, parsing JSON...');
+                
+                // JSON 파싱을 비동기로 처리
+                epidemiologicData = await new Promise((resolve, reject) => {
+                    setTimeout(() => {
+                        try {
+                            const data = JSON.parse(text);
+                            resolve(data);
+                        } catch (parseError) {
+                            reject(new Error(`JSON 파싱 오류: ${parseError.message}`));
+                        }
+                    }, 10); // 브라우저가 응답할 수 있도록 잠시 대기
+                });
+                
+                console.log('JSON parsed successfully. Data structure:', Object.keys(epidemiologicData));
+                
+                // 데이터 무결성 검증
+                if (!validateDataStructure(epidemiologicData)) {
+                    throw new Error('데이터 구조가 올바르지 않습니다.');
+                }
+                
+                updateStatistics();
+                initializeCharts();
+                
+            } catch (error) {
+                console.error('Error loading epidemiologic data:', error);
+                const errorMessage = error.message.includes('SyntaxError') ? 
+                    '데이터 파일의 형식이 올바르지 않습니다. JSON 구조를 확인해주세요.' : 
+                    `역학 분석 데이터를 로드하는데 실패했습니다: ${error.message}`;
+                showError(errorMessage);
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        // 데이터 구조 검증
+        function validateDataStructure(data) {
+            if (!data || typeof data !== 'object') {
+                console.error('Invalid data: not an object');
+                return false;
+            }
+            
+            const requiredSections = ['metadata', 'demographics', 'disease_epidemiology', 'temporal_epidemiology', 'clinical_epidemiology', 'spatial_epidemiology'];
+            
+            for (const section of requiredSections) {
+                if (!data[section]) {
+                    console.error(`Missing required section: ${section}`);
+                    return false;
+                }
+            }
+            
+            // demographics 하위 구조 검증
+            if (!data.demographics.age_distribution || !data.demographics.age_distribution.sample) {
+                console.error('Missing demographics.age_distribution.sample');
+                return false;
+            }
+            
+            console.log('Data structure validation passed');
+            return true;
+        }
+
+        // 통계 업데이트 (안전한 접근)
+        function updateStatistics() {
+            if (!epidemiologicData) {
+                console.warn('No epidemiologic data available for statistics update');
+                return;
+            }
+            
+            try {
+                // 총 레코드 수 계산
+                const demographics = epidemiologicData.demographics;
+                if (demographics?.age_distribution?.sample) {
+                    const totalRecords = demographics.age_distribution.sample.reduce((sum, item) => sum + (item.count || 0), 0);
+                    document.getElementById('totalRecords').textContent = totalRecords.toLocaleString();
+                    document.getElementById('ageGroups').textContent = demographics.age_distribution.sample.length;
+                } else {
+                    console.warn('Age distribution data not found');
+                    document.getElementById('totalRecords').textContent = 'N/A';
+                    document.getElementById('ageGroups').textContent = 'N/A';
+                }
+                
+                // KTAS 레벨 수
+                const disease = epidemiologicData.disease_epidemiology;
+                if (disease?.ktas_distribution?.sample) {
+                    document.getElementById('ktasLevels').textContent = disease.ktas_distribution.sample.length;
+                } else {
+                    console.warn('KTAS distribution data not found');
+                    document.getElementById('ktasLevels').textContent = 'N/A';
+                }
+                
+                // 지역 수
+                if (demographics?.region_distribution?.sample) {
+                    document.getElementById('regions').textContent = demographics.region_distribution.sample.length;
+                } else {
+                    console.warn('Region distribution data not found');
+                    document.getElementById('regions').textContent = 'N/A';
+                }
+                
+                console.log('Statistics updated successfully');
+                
+            } catch (error) {
+                console.error('Error updating statistics:', error);
+                showError('통계 정보 업데이트 중 오류가 발생했습니다.');
+            }
+        }
+
+        // 차트 초기화 (안전한 접근)
+        function initializeCharts() {
+            if (!epidemiologicData) {
+                console.warn('No epidemiologic data available for chart initialization');
+                return;
+            }
+            
+            console.log('Initializing charts...');
+            
+            try {
+                // 연령 분포 차트
+                if (epidemiologicData.demographics?.age_distribution?.sample) {
+                    createAgeDistributionChart();
+                    console.log('Age distribution chart created');
+                } else {
+                    console.warn('Age distribution data not available');
+                }
+                
+                // 성별 분포 차트
+                if (epidemiologicData.demographics?.sex_distribution?.sample) {
+                    createSexDistributionChart();
+                    console.log('Sex distribution chart created');
+                } else {
+                    console.warn('Sex distribution data not available');
+                }
+                
+                // 지역 분포 차트
+                if (epidemiologicData.demographics?.region_distribution?.sample) {
+                    createRegionDistributionChart();
+                    console.log('Region distribution chart created');
+                } else {
+                    console.warn('Region distribution data not available');
+                }
+                
+                // KTAS 분포 차트
+                if (epidemiologicData.disease_epidemiology?.ktas_distribution?.sample) {
+                    createKtasDistributionChart();
+                    console.log('KTAS distribution chart created');
+                } else {
+                    console.warn('KTAS distribution data not available');
+                }
+                
+                // 시간 관련 차트들
+                if (epidemiologicData.temporal_epidemiology) {
+                    createTemporalCharts();
+                    console.log('Temporal charts created');
+                } else {
+                    console.warn('Temporal epidemiology data not available');
+                }
+                
+                // 임상 관련 차트들
+                if (epidemiologicData.clinical_epidemiology) {
+                    createClinicalCharts();
+                    console.log('Clinical charts created');
+                } else {
+                    console.warn('Clinical epidemiology data not available');
+                }
+                
+                // 공간 관련 차트들
+                if (epidemiologicData.spatial_epidemiology) {
+                    createSpatialCharts();
+                    console.log('Spatial charts created');
+                } else {
+                    console.warn('Spatial epidemiology data not available');
+                }
+                
+                console.log('All charts initialized successfully');
+                
+            } catch (error) {
+                console.error('Error initializing charts:', error);
+                showError('차트 초기화 중 오류가 발생했습니다: ' + error.message);
+            }
+        }
+
+        // 연령 분포 차트
+        function createAgeDistributionChart() {
+            try {
+                const ctx = document.getElementById('ageDistributionChart').getContext('2d');
+                const data = epidemiologicData.demographics.age_distribution.sample;
+                
+                if (!data || !Array.isArray(data) || data.length === 0) {
+                    console.error('Invalid age distribution data');
+                    return;
+                }
+            
+            charts.ageDistribution = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(item => item.age_group),
+                    datasets: [{
+                        label: '환자 수',
+                        data: data.map(item => item.count),
+                        backgroundColor: 'rgba(52, 152, 219, 0.8)',
+                        borderColor: 'rgba(52, 152, 219, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '연령별 환자 분포'
+                        },
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            } catch (error) {
+                console.error('Error creating age distribution chart:', error);
+            }
+        }
+
+        // 성별 분포 차트
+        function createSexDistributionChart() {
+            const ctx = document.getElementById('sexDistributionChart').getContext('2d');
+            const data = epidemiologicData.demographics.sex_distribution.sample;
+            
+            charts.sexDistribution = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: data.map(item => item.sex),
+                    datasets: [{
+                        data: data.map(item => item.count),
+                        backgroundColor: [
+                            'rgba(52, 152, 219, 0.8)',
+                            'rgba(231, 76, 60, 0.8)',
+                            'rgba(155, 89, 182, 0.8)'
+                        ],
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '성별 환자 분포'
+                        },
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        // 지역 분포 차트
+        function createRegionDistributionChart() {
+            const ctx = document.getElementById('regionDistributionChart').getContext('2d');
+            const data = epidemiologicData.demographics.region_distribution.sample;
+            
+            charts.regionDistribution = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(item => item.region_code),
+                    datasets: [{
+                        label: '환자 수',
+                        data: data.map(item => item.count),
+                        backgroundColor: 'rgba(46, 204, 113, 0.8)',
+                        borderColor: 'rgba(46, 204, 113, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '지역별 환자 분포 (상위 20개 지역)'
+                        },
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                maxRotation: 45
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // KTAS 분포 차트
+        function createKtasDistributionChart() {
+            const ctx = document.getElementById('ktasDistributionChart').getContext('2d');
+            const data = epidemiologicData.disease_epidemiology.ktas_distribution.sample;
+            
+            const ktasLabels = {
+                '1': 'Level 1 (소생술)',
+                '2': 'Level 2 (응급)',
+                '3': 'Level 3 (긴급)',
+                '4': 'Level 4 (준긴급)',
+                '5': 'Level 5 (비긴급)'
+            };
+            
+            const colors = [
+                'rgba(231, 76, 60, 0.8)',   // 빨간색 - 소생술
+                'rgba(230, 126, 34, 0.8)',  // 주황색 - 응급
+                'rgba(241, 196, 15, 0.8)',  // 노란색 - 긴급
+                'rgba(46, 204, 113, 0.8)',  // 초록색 - 준긴급
+                'rgba(52, 152, 219, 0.8)'   // 파란색 - 비긴급
+            ];
+            
+            charts.ktasDistribution = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(item => ktasLabels[item.ktas_no] || `Level ${item.ktas_no}`),
+                    datasets: [{
+                        label: '환자 수',
+                        data: data.map(item => item.count),
+                        backgroundColor: data.map((item, index) => colors[index] || 'rgba(155, 89, 182, 0.8)'),
+                        borderColor: data.map((item, index) => colors[index] || 'rgba(155, 89, 182, 1)'),
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'KTAS 중증도별 환자 분포'
+                        },
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 시간 관련 차트들
+        function createTemporalCharts() {
+            // 월별 패턴
+            if (epidemiologicData.temporal_epidemiology.monthly_pattern) {
+                createMonthlyPatternChart();
+            }
+            
+            // 요일별 패턴
+            if (epidemiologicData.temporal_epidemiology.weekday_pattern) {
+                createWeekdayPatternChart();
+            }
+            
+            // 시간별 패턴
+            if (epidemiologicData.temporal_epidemiology.hourly_pattern) {
+                createHourlyPatternChart();
+            }
+        }
+
+        // 월별 패턴 차트
+        function createMonthlyPatternChart() {
+            const ctx = document.getElementById('monthlyPatternChart').getContext('2d');
+            const data = epidemiologicData.temporal_epidemiology.monthly_pattern.sample;
+            
+            const monthNames = ['1월', '2월', '3월', '4월', '5월', '6월', 
+                              '7월', '8월', '9월', '10월', '11월', '12월'];
+            
+            charts.monthlyPattern = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(item => monthNames[item.month - 1]),
+                    datasets: [{
+                        label: '환자 수',
+                        data: data.map(item => item.count),
+                        backgroundColor: 'rgba(52, 152, 219, 0.2)',
+                        borderColor: 'rgba(52, 152, 219, 1)',
+                        borderWidth: 2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '월별 응급실 방문 패턴'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 요일별 패턴 차트
+        function createWeekdayPatternChart() {
+            const ctx = document.getElementById('weekdayPatternChart').getContext('2d');
+            const data = epidemiologicData.temporal_epidemiology.weekday_pattern.sample;
+            
+            charts.weekdayPattern = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(item => item.weekday),
+                    datasets: [{
+                        label: '환자 수',
+                        data: data.map(item => item.total_count),
+                        backgroundColor: 'rgba(155, 89, 182, 0.8)',
+                        borderColor: 'rgba(155, 89, 182, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '요일별 응급실 방문 패턴'
+                        },
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 시간별 패턴 차트
+        function createHourlyPatternChart() {
+            const ctx = document.getElementById('hourlyPatternChart').getContext('2d');
+            const data = epidemiologicData.temporal_epidemiology.hourly_pattern.sample;
+            
+            charts.hourlyPattern = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(item => `${item.hour}시`),
+                    datasets: [{
+                        label: '환자 수',
+                        data: data.map(item => item.count),
+                        backgroundColor: 'rgba(230, 126, 34, 0.2)',
+                        borderColor: 'rgba(230, 126, 34, 1)',
+                        borderWidth: 2,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '시간별 응급실 방문 패턴'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 임상 관련 차트들
+        function createClinicalCharts() {
+            if (epidemiologicData.clinical_epidemiology.vital_signs) {
+                createVitalSignsChart();
+                updateVitalSignsTable();
+            }
+            
+            if (epidemiologicData.clinical_epidemiology.ktas_vital_patterns) {
+                createKtasVitalPatternsChart();
+            }
+        }
+
+        // 생체징후 차트
+        function createVitalSignsChart() {
+            const ctx = document.getElementById('vitalSignsChart').getContext('2d');
+            const data = epidemiologicData.clinical_epidemiology.vital_signs.sample;
+            
+            charts.vitalSigns = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['수축기혈압', '이완기혈압', '맥박', '호흡', '산소포화도'],
+                    datasets: [{
+                        label: '평균값',
+                        data: [
+                            data.avg_sbp,
+                            data.avg_dbp,
+                            data.avg_pulse,
+                            data.avg_respiration,
+                            data.avg_oxygen
+                        ].map(val => val ? parseFloat(val.toFixed(1)) : 0),
+                        backgroundColor: [
+                            'rgba(231, 76, 60, 0.8)',
+                            'rgba(52, 152, 219, 0.8)',
+                            'rgba(46, 204, 113, 0.8)',
+                            'rgba(155, 89, 182, 0.8)',
+                            'rgba(241, 196, 15, 0.8)'
+                        ],
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '생체징후 평균값'
+                        },
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        // 생체징후 테이블 업데이트
+        function updateVitalSignsTable() {
+            const data = epidemiologicData.clinical_epidemiology.vital_signs.sample;
+            const tbody = document.querySelector('#vitalSignsTable tbody');
+            
+            const vitals = [
+                {name: '수축기혈압', avg: data.avg_sbp, records: data.sbp_records, total: data.total_records},
+                {name: '이완기혈압', avg: data.avg_dbp, records: data.dbp_records, total: data.total_records},
+                {name: '맥박', avg: data.avg_pulse, records: data.pulse_records, total: data.total_records},
+                {name: '호흡', avg: data.avg_respiration, records: data.respiration_records, total: data.total_records},
+                {name: '산소포화도', avg: data.avg_oxygen, records: data.oxygen_records, total: data.total_records}
+            ];
+            
+            tbody.innerHTML = vitals.map(vital => `
+                <tr>
+                    <td>${vital.name}</td>
+                    <td>${vital.avg ? vital.avg.toFixed(1) : 'N/A'}</td>
+                    <td>
+                        <div class="progress">
+                            <div class="progress-bar" style="width: ${(vital.records/vital.total*100).toFixed(1)}%">
+                                ${(vital.records/vital.total*100).toFixed(1)}%
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // KTAS별 생체징후 패턴 차트
+        function createKtasVitalPatternsChart() {
+            const ctx = document.getElementById('ktasVitalPatternsChart').getContext('2d');
+            const data = epidemiologicData.clinical_epidemiology.ktas_vital_patterns.sample;
+            
+            charts.ktasVitalPatterns = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(item => `KTAS ${item.ktas_no}`),
+                    datasets: [
+                        {
+                            label: '수축기혈압',
+                            data: data.map(item => item.avg_sbp),
+                            borderColor: 'rgba(231, 76, 60, 1)',
+                            backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: '맥박',
+                            data: data.map(item => item.avg_pulse),
+                            borderColor: 'rgba(46, 204, 113, 1)',
+                            backgroundColor: 'rgba(46, 204, 113, 0.1)',
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: '산소포화도',
+                            data: data.map(item => item.avg_oxygen),
+                            borderColor: 'rgba(52, 152, 219, 1)',
+                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'KTAS 중증도별 생체징후 패턴'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            grid: {
+                                drawOnChartArea: false,
+                            },
+                        }
+                    }
+                }
+            });
+        }
+
+        // 공간 관련 차트들
+        function createSpatialCharts() {
+            if (epidemiologicData.spatial_epidemiology.hospital_distribution) {
+                createHospitalDistributionChart();
+            }
+        }
+
+        // 병원별 분포 차트
+        function createHospitalDistributionChart() {
+            const ctx = document.getElementById('hospitalDistributionChart').getContext('2d');
+            const data = epidemiologicData.spatial_epidemiology.hospital_distribution.sample.slice(0, 10);
+            
+            charts.hospitalDistribution = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.map(item => item.hospital_code.slice(-6)),
+                    datasets: [{
+                        label: '환자 수',
+                        data: data.map(item => item.patient_count),
+                        backgroundColor: 'rgba(230, 126, 34, 0.8)',
+                        borderColor: 'rgba(230, 126, 34, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '병원별 환자 분포 (상위 10개 병원)'
+                        },
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 유틸리티 함수들
+        function showLoading(show) {
+            const loading = document.getElementById('loadingIndicator');
+            const statsCards = document.getElementById('statsCards');
+            
+            if (show) {
+                loading.style.display = 'block';
+                statsCards.style.display = 'none';
+            } else {
+                loading.style.display = 'none';
+                statsCards.style.display = 'flex';
+            }
+        }
+
+        function showError(message) {
+            const container = document.querySelector('.main-container');
+            
+            // 기존 오류 메시지 제거
+            const existingErrors = container.querySelectorAll('.alert-danger');
+            existingErrors.forEach(error => error.remove());
+            
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'alert alert-danger';
+            errorDiv.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-exclamation-triangle me-3"></i>
+                    <div>
+                        <h6 class="mb-1">데이터 로딩 오류</h6>
+                        <p class="mb-2">${message}</p>
+                        <small class="text-muted">
+                            문제가 지속되면 브라우저 개발자 도구(F12)의 콘솔을 확인해주세요.
+                        </small>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-outline-light btn-sm mt-2" onclick="refreshData()">
+                    <i class="fas fa-sync-alt me-1"></i>다시 시도
+                </button>
+            `;
+            container.insertBefore(errorDiv, container.firstChild);
+        }
+
+        function applyFilters() {
+            const analysisType = document.getElementById('analysisType').value;
+            const dataType = document.getElementById('dataType').value;
+            const chartType = document.getElementById('chartType').value;
+            
+            // 필터 적용 로직 (향후 구현)
+            console.log('Filters applied:', {analysisType, dataType, chartType});
+        }
+
+        function refreshData() {
+            loadEpidemiologicData();
+        }
+        
+        function updateDataVersionInfo(dataFile) {
+            const versionElement = document.getElementById('dataVersion');
+            let versionText = '';
+            
+            if (dataFile.includes('sample')) {
+                versionText = '샘플 데이터 (5KB)';
+            } else if (dataFile.includes('optimized')) {
+                versionText = '최적화 데이터 (6MB)';
+            } else {
+                versionText = '전체 데이터 (25MB)';
+            }
+            
+            versionElement.textContent = versionText;
+        }
+    </script>
+</body>
+</html>

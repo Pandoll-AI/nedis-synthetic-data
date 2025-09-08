@@ -1,0 +1,21 @@
+2025-09-08 16:27:08,041 - __main__ - INFO - Initializing database and configuration...
+2025-09-08 16:27:08,048 - __main__ - ERROR - Phase 1 execution failed: 'DatabaseManager' object has no attribute 'logger'
+2025-09-08 16:27:08,049 - __main__ - ERROR - Traceback: Traceback (most recent call last):
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/core/database.py", line 37, in _connect
+    self.logger.info(f"Connected to database: {self.db_path}")
+    ^^^^^^^^^^^
+AttributeError: 'DatabaseManager' object has no attribute 'logger'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/sjlee/Projects/nedis-synthetic-data/scripts/run_phase1.py", line 262, in main
+    db_manager = DatabaseManager()
+                 ^^^^^^^^^^^^^^^^^
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/core/database.py", line 29, in __init__
+    self._connect()
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/core/database.py", line 39, in _connect
+    self.logger.error(f"Failed to connect to database: {e}")
+    ^^^^^^^^^^^
+AttributeError: 'DatabaseManager' object has no attribute 'logger'
+

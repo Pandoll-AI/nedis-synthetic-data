@@ -1,0 +1,471 @@
+2025-09-09 06:08:18,692 - __main__ - INFO - === NEDIS Synthetic Data Pipeline - Phases 3-7 ===
+2025-09-09 06:08:18,692 - __main__ - INFO - Phases to run: 3, 4
+2025-09-09 06:08:18,692 - __main__ - INFO - Sample days: 3
+2025-09-09 06:08:18,692 - __main__ - INFO - Validation sample size: 50000
+2025-09-09 06:08:18,703 - src.core.database - INFO - Connected to database: nedis_sample.duckdb
+2025-09-09 06:08:18,705 - src.core.database - INFO - Database schemas created successfully
+2025-09-09 06:08:18,707 - src.core.config - INFO - Configuration loaded from config/generation_params.yaml
+2025-09-09 06:08:18,707 - __main__ - INFO - === Starting Phase 3: Hospital Allocation & Capacity Constraints ===
+2025-09-09 06:08:18,707 - __main__ - INFO - Step 1: Initializing distance matrix
+2025-09-09 06:08:18,707 - src.allocation.gravity_model - INFO - Initializing distance matrix between regions and hospitals
+2025-09-09 06:08:18,758 - src.allocation.gravity_model - INFO - Distance matrix created with 204 entries
+2025-09-09 06:08:18,758 - __main__ - INFO - Step 2: Calculating hospital attractiveness
+2025-09-09 06:08:18,758 - src.allocation.gravity_model - INFO - Calculating hospital attractiveness scores
+2025-09-09 06:08:18,767 - src.allocation.gravity_model - INFO - Attractiveness scores calculated for 12 hospitals
+2025-09-09 06:08:18,767 - src.allocation.gravity_model - INFO - Top hospital: A1100008 (score: 100.00)
+2025-09-09 06:08:18,767 - __main__ - INFO - Step 3: Calculating allocation probabilities
+2025-09-09 06:08:18,767 - src.allocation.gravity_model - INFO - Calculating hospital allocation probabilities using Huff model
+2025-09-09 06:08:18,771 - src.allocation.gravity_model - INFO - Processing 276 population groups
+2025-09-09 06:08:19,746 - src.allocation.gravity_model - INFO - Hospital choice probabilities calculated: 3312 records
+2025-09-09 06:08:19,747 - src.allocation.gravity_model - INFO - Hospital choice probability summary:
+2025-09-09 06:08:19,748 - src.allocation.gravity_model - INFO -   A1100008: avg=0.2622, first_choice=276.0 groups
+2025-09-09 06:08:19,748 - src.allocation.gravity_model - INFO -   A1100040: avg=0.2219, first_choice=0.0 groups
+2025-09-09 06:08:19,748 - src.allocation.gravity_model - INFO -   A1100013: avg=0.1976, first_choice=0.0 groups
+2025-09-09 06:08:19,748 - src.allocation.gravity_model - INFO -   A1100002: avg=0.1867, first_choice=0.0 groups
+2025-09-09 06:08:19,748 - src.allocation.gravity_model - INFO -   A1100053: avg=0.0846, first_choice=0.0 groups
+2025-09-09 06:08:19,748 - __main__ - INFO - Step 4: Initializing allocation table
+2025-09-09 06:08:19,748 - src.allocation.gravity_model - INFO - Initializing hospital allocation table
+2025-09-09 06:08:19,748 - src.allocation.gravity_model - INFO - Hospital allocation table initialized successfully
+2025-09-09 06:08:19,748 - __main__ - INFO - Processing allocation for date: 20170101
+2025-09-09 06:08:19,748 - src.allocation.gravity_model - INFO - Allocating hospital visits for date: 20170101
+2025-09-09 06:08:19,793 - src.allocation.gravity_model - INFO - Processing capacity constraints and overflow redistribution
+2025-09-09 06:08:19,793 - src.allocation.gravity_model - WARNING - Hospital A1100008 overflow: 487 (load: 660, capacity: 173)
+2025-09-09 06:08:19,793 - src.allocation.gravity_model - WARNING - Hospital A1100040 overflow: 305 (load: 525, capacity: 220)
+2025-09-09 06:08:19,794 - src.allocation.gravity_model - WARNING - Hospital A1100002 overflow: 239 (load: 432, capacity: 193)
+2025-09-09 06:08:19,794 - src.allocation.gravity_model - WARNING - Hospital A1100053 overflow: 142 (load: 242, capacity: 100)
+2025-09-09 06:08:19,794 - src.allocation.gravity_model - WARNING - Hospital A1100013 overflow: 386 (load: 528, capacity: 142)
+2025-09-09 06:08:19,802 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-30-M: 3/28
+2025-09-09 06:08:19,804 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-40-F: 0/25
+2025-09-09 06:08:19,805 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-40-M: 0/26
+2025-09-09 06:08:19,806 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-50-F: 0/27
+2025-09-09 06:08:19,807 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-50-M: 0/25
+2025-09-09 06:08:19,808 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-60-F: 0/19
+2025-09-09 06:08:19,809 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-60-M: 0/22
+2025-09-09 06:08:19,810 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-70-F: 0/23
+2025-09-09 06:08:19,811 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-70-M: 0/21
+2025-09-09 06:08:19,812 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-80-F: 0/15
+2025-09-09 06:08:19,813 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-80-M: 0/14
+2025-09-09 06:08:19,814 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-90-F: 0/2
+2025-09-09 06:08:19,815 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 26-20-M: 0/1
+2025-09-09 06:08:19,815 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 26-30-F: 0/1
+2025-09-09 06:08:19,816 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 26-30-M: 0/1
+2025-09-09 06:08:19,817 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 26-40-F: 0/1
+2025-09-09 06:08:19,818 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 26-40-M: 0/1
+2025-09-09 06:08:19,819 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 26-50-M: 0/1
+2025-09-09 06:08:19,820 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 26-70-F: 0/1
+2025-09-09 06:08:19,821 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 27-10-M: 0/1
+2025-09-09 06:08:19,821 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-09-F: 0/1
+2025-09-09 06:08:19,822 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-30-M: 0/1
+2025-09-09 06:08:19,823 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-60-M: 0/1
+2025-09-09 06:08:19,824 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-70-F: 0/2
+2025-09-09 06:08:19,825 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-80-M: 0/1
+2025-09-09 06:08:19,825 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 29-10-F: 0/1
+2025-09-09 06:08:19,826 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 30-30-M: 0/1
+2025-09-09 06:08:19,827 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 30-50-M: 0/1
+2025-09-09 06:08:19,828 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 30-70-M: 0/1
+2025-09-09 06:08:19,829 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 31-20-M: 0/1
+2025-09-09 06:08:19,829 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-09-F: 0/1
+2025-09-09 06:08:19,830 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-09-M: 0/2
+2025-09-09 06:08:19,831 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-10-M: 0/4
+2025-09-09 06:08:19,832 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-20-F: 0/3
+2025-09-09 06:08:19,833 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-20-M: 0/3
+2025-09-09 06:08:19,833 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-30-F: 0/1
+2025-09-09 06:08:19,834 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-30-M: 0/4
+2025-09-09 06:08:19,835 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-40-F: 0/2
+2025-09-09 06:08:19,836 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-40-M: 0/5
+2025-09-09 06:08:19,837 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-50-F: 0/2
+2025-09-09 06:08:19,838 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-50-M: 0/6
+2025-09-09 06:08:19,839 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-60-F: 0/2
+2025-09-09 06:08:19,840 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-60-M: 0/6
+2025-09-09 06:08:19,841 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-70-F: 0/3
+2025-09-09 06:08:19,841 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-70-M: 0/9
+2025-09-09 06:08:19,842 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-80-F: 0/1
+2025-09-09 06:08:19,843 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-80-M: 0/3
+2025-09-09 06:08:19,844 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 42-40-M: 0/1
+2025-09-09 06:08:19,845 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 42-60-M: 0/1
+2025-09-09 06:08:19,846 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-30-F: 0/1
+2025-09-09 06:08:19,846 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-50-F: 0/1
+2025-09-09 06:08:19,847 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-70-M: 0/1
+2025-09-09 06:08:19,848 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-20-F: 0/1
+2025-09-09 06:08:19,849 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 45-10-M: 0/1
+2025-09-09 06:08:19,850 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 45-40-M: 0/1
+2025-09-09 06:08:19,851 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 45-70-M: 0/1
+2025-09-09 06:08:19,851 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 46-09-F: 0/1
+2025-09-09 06:08:19,852 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 46-20-M: 0/1
+2025-09-09 06:08:19,853 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 46-50-F: 0/1
+2025-09-09 06:08:19,854 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 46-60-F: 0/1
+2025-09-09 06:08:19,855 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 46-80-M: 0/1
+2025-09-09 06:08:19,855 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-09-M: 0/1
+2025-09-09 06:08:19,856 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-20-F: 0/1
+2025-09-09 06:08:19,857 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-20-M: 0/1
+2025-09-09 06:08:19,858 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-30-M: 0/1
+2025-09-09 06:08:19,859 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-50-F: 0/1
+2025-09-09 06:08:19,860 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-70-M: 0/1
+2025-09-09 06:08:19,860 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-10-M: 0/1
+2025-09-09 06:08:19,861 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-20-F: 0/1
+2025-09-09 06:08:19,862 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-50-M: 0/1
+2025-09-09 06:08:19,865 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-09-M: 10/14
+2025-09-09 06:08:19,866 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-10-F: 0/9
+2025-09-09 06:08:19,867 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-10-M: 0/10
+2025-09-09 06:08:19,868 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-20-F: 0/21
+2025-09-09 06:08:19,868 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-20-M: 0/20
+2025-09-09 06:08:19,869 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-30-F: 0/22
+2025-09-09 06:08:19,870 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-30-M: 0/12
+2025-09-09 06:08:19,871 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-40-F: 0/17
+2025-09-09 06:08:19,872 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-40-M: 0/14
+2025-09-09 06:08:19,873 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-50-F: 0/16
+2025-09-09 06:08:19,874 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-50-M: 0/22
+2025-09-09 06:08:19,874 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-60-F: 0/11
+2025-09-09 06:08:19,875 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-60-M: 0/17
+2025-09-09 06:08:19,876 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-70-F: 0/12
+2025-09-09 06:08:19,877 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-70-M: 0/18
+2025-09-09 06:08:19,878 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-80-F: 0/10
+2025-09-09 06:08:19,879 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-80-M: 0/7
+2025-09-09 06:08:19,879 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-90-F: 0/1
+2025-09-09 06:08:19,880 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-90-M: 0/2
+2025-09-09 06:08:19,881 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 26-20-F: 0/1
+2025-09-09 06:08:19,882 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 27-40-M: 0/1
+2025-09-09 06:08:19,883 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-09-M: 0/1
+2025-09-09 06:08:19,883 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-50-M: 0/1
+2025-09-09 06:08:19,884 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 29-20-F: 0/1
+2025-09-09 06:08:19,885 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 30-20-F: 0/1
+2025-09-09 06:08:19,886 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 30-40-M: 0/1
+2025-09-09 06:08:19,887 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 30-60-M: 0/1
+2025-09-09 06:08:19,887 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 31-10-F: 0/1
+2025-09-09 06:08:19,888 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-01-M: 0/2
+2025-09-09 06:08:19,889 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-09-F: 0/1
+2025-09-09 06:08:19,890 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-09-M: 0/1
+2025-09-09 06:08:19,890 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-20-F: 0/2
+2025-09-09 06:08:19,891 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-20-M: 0/2
+2025-09-09 06:08:19,892 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-30-F: 0/1
+2025-09-09 06:08:19,893 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-30-M: 0/1
+2025-09-09 06:08:19,894 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-40-F: 0/1
+2025-09-09 06:08:19,894 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-40-M: 0/2
+2025-09-09 06:08:19,895 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-50-F: 0/2
+2025-09-09 06:08:19,896 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-50-M: 0/1
+2025-09-09 06:08:19,897 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-60-F: 0/3
+2025-09-09 06:08:19,898 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-60-M: 0/5
+2025-09-09 06:08:19,898 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-70-F: 0/3
+2025-09-09 06:08:19,899 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-70-M: 0/1
+2025-09-09 06:08:19,900 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-80-F: 0/1
+2025-09-09 06:08:19,901 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-80-M: 0/1
+2025-09-09 06:08:19,902 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-90-M: 0/1
+2025-09-09 06:08:19,902 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 42-20-F: 0/1
+2025-09-09 06:08:19,903 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 42-70-F: 0/1
+2025-09-09 06:08:19,904 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 42-70-M: 0/1
+2025-09-09 06:08:19,905 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-09-F: 0/1
+2025-09-09 06:08:19,906 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-30-M: 0/1
+2025-09-09 06:08:19,907 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-09-M: 0/1
+2025-09-09 06:08:19,908 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-30-F: 0/1
+2025-09-09 06:08:19,908 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-30-M: 0/1
+2025-09-09 06:08:19,909 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-40-F: 0/1
+2025-09-09 06:08:19,910 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-70-F: 0/1
+2025-09-09 06:08:19,911 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-70-M: 0/1
+2025-09-09 06:08:19,912 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 45-20-M: 0/1
+2025-09-09 06:08:19,912 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 45-30-F: 0/1
+2025-09-09 06:08:19,913 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-30-F: 0/1
+2025-09-09 06:08:19,914 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-50-M: 0/1
+2025-09-09 06:08:19,915 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-09-M: 0/1
+2025-09-09 06:08:19,916 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-10-F: 0/1
+2025-09-09 06:08:19,917 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-20-F: 0/1
+2025-09-09 06:08:19,917 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-20-M: 0/1
+2025-09-09 06:08:19,918 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-50-F: 0/1
+2025-09-09 06:08:19,919 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-80-F: 0/1
+2025-09-09 06:08:19,920 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 50-10-F: 0/1
+2025-09-09 06:08:19,920 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 50-70-M: 0/1
+2025-09-09 06:08:19,921 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-01-F: 0/2
+2025-09-09 06:08:19,922 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-01-M: 0/2
+2025-09-09 06:08:19,923 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-09-F: 0/9
+2025-09-09 06:08:19,924 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-09-M: 0/8
+2025-09-09 06:08:19,925 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-10-F: 0/6
+2025-09-09 06:08:19,925 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-10-M: 0/9
+2025-09-09 06:08:19,926 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-20-F: 0/18
+2025-09-09 06:08:19,927 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-20-M: 0/12
+2025-09-09 06:08:19,928 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-30-F: 0/12
+2025-09-09 06:08:19,929 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-30-M: 0/14
+2025-09-09 06:08:19,930 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-40-F: 0/13
+2025-09-09 06:08:19,931 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-40-M: 0/10
+2025-09-09 06:08:19,932 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-50-F: 0/18
+2025-09-09 06:08:19,933 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-50-M: 0/13
+2025-09-09 06:08:19,933 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-60-F: 0/14
+2025-09-09 06:08:19,934 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-60-M: 0/10
+2025-09-09 06:08:19,935 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-70-F: 0/8
+2025-09-09 06:08:19,936 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-70-M: 0/14
+2025-09-09 06:08:19,937 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-80-F: 0/9
+2025-09-09 06:08:19,938 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-80-M: 0/6
+2025-09-09 06:08:19,940 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 26-10-F: 0/1
+2025-09-09 06:08:19,941 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 26-50-F: 0/1
+2025-09-09 06:08:19,941 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 27-20-M: 0/1
+2025-09-09 06:08:19,942 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-01-F: 0/1
+2025-09-09 06:08:19,943 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-20-F: 0/2
+2025-09-09 06:08:19,944 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-20-M: 0/2
+2025-09-09 06:08:19,945 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-30-F: 0/1
+2025-09-09 06:08:19,946 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-30-M: 0/1
+2025-09-09 06:08:19,947 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-50-M: 0/2
+2025-09-09 06:08:19,948 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-70-M: 0/1
+2025-09-09 06:08:19,949 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 29-20-M: 0/1
+2025-09-09 06:08:19,950 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 30-20-M: 0/1
+2025-09-09 06:08:19,951 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 31-20-F: 0/1
+2025-09-09 06:08:19,952 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-01-M: 0/1
+2025-09-09 06:08:19,953 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-09-M: 0/1
+2025-09-09 06:08:19,954 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-10-M: 0/1
+2025-09-09 06:08:19,954 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-20-F: 0/3
+2025-09-09 06:08:19,955 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-20-M: 0/3
+2025-09-09 06:08:19,956 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-30-F: 0/2
+2025-09-09 06:08:19,957 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-30-M: 0/2
+2025-09-09 06:08:19,958 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-40-F: 0/2
+2025-09-09 06:08:19,959 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-40-M: 0/2
+2025-09-09 06:08:19,960 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-50-F: 0/2
+2025-09-09 06:08:19,961 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-50-M: 0/4
+2025-09-09 06:08:19,961 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-60-F: 0/1
+2025-09-09 06:08:19,962 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-60-M: 0/2
+2025-09-09 06:08:19,963 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-70-F: 0/2
+2025-09-09 06:08:19,964 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-70-M: 0/5
+2025-09-09 06:08:19,964 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-80-F: 0/1
+2025-09-09 06:08:19,965 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-80-M: 0/2
+2025-09-09 06:08:19,966 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 42-20-F: 0/1
+2025-09-09 06:08:19,967 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-10-M: 0/1
+2025-09-09 06:08:19,968 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-20-F: 0/1
+2025-09-09 06:08:19,968 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-40-F: 0/1
+2025-09-09 06:08:19,969 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-80-F: 0/1
+2025-09-09 06:08:19,970 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-80-M: 0/1
+2025-09-09 06:08:19,971 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 45-30-M: 0/1
+2025-09-09 06:08:19,972 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 45-50-F: 0/1
+2025-09-09 06:08:19,973 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 46-40-M: 0/1
+2025-09-09 06:08:19,974 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 46-80-F: 0/1
+2025-09-09 06:08:19,975 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-60-F: 0/1
+2025-09-09 06:08:19,975 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-70-F: 0/1
+2025-09-09 06:08:19,976 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-20-F: 0/1
+2025-09-09 06:08:19,977 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-60-F: 0/1
+2025-09-09 06:08:19,978 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-70-M: 0/1
+2025-09-09 06:08:19,979 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-01-F: 0/1
+2025-09-09 06:08:19,980 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-01-M: 0/3
+2025-09-09 06:08:19,980 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-09-F: 0/4
+2025-09-09 06:08:19,981 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-09-M: 0/7
+2025-09-09 06:08:19,982 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-10-F: 0/4
+2025-09-09 06:08:19,983 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-10-M: 0/5
+2025-09-09 06:08:19,984 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-20-F: 0/9
+2025-09-09 06:08:19,985 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-20-M: 0/9
+2025-09-09 06:08:19,985 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-30-F: 0/6
+2025-09-09 06:08:19,986 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-30-M: 0/15
+2025-09-09 06:08:19,987 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-40-F: 0/8
+2025-09-09 06:08:19,988 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-40-M: 0/9
+2025-09-09 06:08:19,989 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-50-F: 0/6
+2025-09-09 06:08:19,989 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-50-M: 0/9
+2025-09-09 06:08:19,990 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-60-F: 0/10
+2025-09-09 06:08:19,991 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-60-M: 0/7
+2025-09-09 06:08:19,992 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-70-F: 0/7
+2025-09-09 06:08:19,993 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-70-M: 0/8
+2025-09-09 06:08:19,993 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-80-F: 0/6
+2025-09-09 06:08:19,994 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-80-M: 0/3
+2025-09-09 06:08:19,995 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-90-F: 0/1
+2025-09-09 06:08:19,996 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 27-20-F: 0/1
+2025-09-09 06:08:19,997 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-60-M: 0/1
+2025-09-09 06:08:19,998 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-01-M: 0/1
+2025-09-09 06:08:19,998 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-09-M: 0/1
+2025-09-09 06:08:19,999 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-20-F: 0/1
+2025-09-09 06:08:20,000 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-20-M: 0/2
+2025-09-09 06:08:20,001 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-30-F: 0/2
+2025-09-09 06:08:20,002 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-30-M: 0/1
+2025-09-09 06:08:20,002 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-50-F: 0/1
+2025-09-09 06:08:20,003 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-50-M: 0/1
+2025-09-09 06:08:20,004 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-60-M: 0/1
+2025-09-09 06:08:20,005 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-70-M: 0/2
+2025-09-09 06:08:20,006 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-80-F: 0/2
+2025-09-09 06:08:20,007 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-80-M: 0/2
+2025-09-09 06:08:20,008 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 42-50-F: 0/1
+2025-09-09 06:08:20,009 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-70-F: 0/1
+2025-09-09 06:08:20,010 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-50-M: 0/1
+2025-09-09 06:08:20,011 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 45-40-F: 0/1
+2025-09-09 06:08:20,011 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 46-70-F: 0/1
+2025-09-09 06:08:20,012 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-60-M: 0/1
+2025-09-09 06:08:20,013 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 47-80-M: 0/1
+2025-09-09 06:08:20,014 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-60-M: 0/1
+2025-09-09 06:08:20,015 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-01-M: 0/3
+2025-09-09 06:08:20,015 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-09-F: 0/14
+2025-09-09 06:08:20,016 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-09-M: 0/17
+2025-09-09 06:08:20,017 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-10-F: 0/6
+2025-09-09 06:08:20,018 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-10-M: 0/10
+2025-09-09 06:08:20,019 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-20-F: 0/30
+2025-09-09 06:08:20,019 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-20-M: 0/19
+2025-09-09 06:08:20,020 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-30-F: 0/22
+2025-09-09 06:08:20,021 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-30-M: 0/22
+2025-09-09 06:08:20,022 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-40-F: 0/25
+2025-09-09 06:08:20,023 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-40-M: 0/22
+2025-09-09 06:08:20,024 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-50-F: 0/23
+2025-09-09 06:08:20,024 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-50-M: 0/24
+2025-09-09 06:08:20,025 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-60-F: 0/12
+2025-09-09 06:08:20,026 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-60-M: 0/18
+2025-09-09 06:08:20,027 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-70-F: 0/20
+2025-09-09 06:08:20,027 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-70-M: 0/17
+2025-09-09 06:08:20,028 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-80-F: 0/13
+2025-09-09 06:08:20,029 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-80-M: 0/9
+2025-09-09 06:08:20,030 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-90-F: 0/2
+2025-09-09 06:08:20,031 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 11-90-M: 0/1
+2025-09-09 06:08:20,031 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 26-60-M: 0/1
+2025-09-09 06:08:20,032 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 27-30-F: 0/1
+2025-09-09 06:08:20,033 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 27-50-M: 0/1
+2025-09-09 06:08:20,034 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-30-F: 0/1
+2025-09-09 06:08:20,035 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-40-F: 0/1
+2025-09-09 06:08:20,035 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-40-M: 0/2
+2025-09-09 06:08:20,036 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 28-80-F: 0/1
+2025-09-09 06:08:20,037 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 30-09-M: 0/1
+2025-09-09 06:08:20,038 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 30-60-F: 0/1
+2025-09-09 06:08:20,039 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 31-20-F: 0/1
+2025-09-09 06:08:20,040 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-01-F: 0/1
+2025-09-09 06:08:20,041 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-09-M: 0/2
+2025-09-09 06:08:20,042 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-10-F: 0/3
+2025-09-09 06:08:20,042 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-20-F: 0/5
+2025-09-09 06:08:20,043 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-20-M: 0/6
+2025-09-09 06:08:20,044 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-30-F: 0/3
+2025-09-09 06:08:20,045 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-30-M: 0/6
+2025-09-09 06:08:20,046 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-40-M: 0/2
+2025-09-09 06:08:20,046 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-50-F: 0/4
+2025-09-09 06:08:20,047 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-50-M: 0/2
+2025-09-09 06:08:20,048 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-60-F: 0/3
+2025-09-09 06:08:20,049 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-60-M: 0/6
+2025-09-09 06:08:20,050 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-70-F: 0/3
+2025-09-09 06:08:20,050 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-70-M: 0/4
+2025-09-09 06:08:20,051 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-80-F: 0/3
+2025-09-09 06:08:20,052 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 41-80-M: 0/4
+2025-09-09 06:08:20,053 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-20-M: 0/1
+2025-09-09 06:08:20,054 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-40-M: 0/1
+2025-09-09 06:08:20,055 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-80-F: 0/1
+2025-09-09 06:08:20,055 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 43-80-M: 0/1
+2025-09-09 06:08:20,056 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-20-M: 0/1
+2025-09-09 06:08:20,057 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 44-50-F: 0/1
+2025-09-09 06:08:20,058 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 45-10-F: 0/1
+2025-09-09 06:08:20,059 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 45-50-M: 0/1
+2025-09-09 06:08:20,060 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 46-09-M: 0/1
+2025-09-09 06:08:20,061 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 46-70-M: 0/1
+2025-09-09 06:08:20,062 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 48-10-M: 0/1
+2025-09-09 06:08:20,063 - src.allocation.gravity_model - WARNING - Could not redistribute all overflow for group 50-20-F: 0/1
+2025-09-09 06:08:20,145 - src.allocation.gravity_model - INFO - Hospital allocation completed: 398 allocation records
+2025-09-09 06:08:20,146 - src.allocation.gravity_model - INFO - Total allocated visits: 2506
+2025-09-09 06:08:20,147 - src.allocation.gravity_model - INFO - Hospital allocation summary:
+2025-09-09 06:08:20,147 - src.allocation.gravity_model - INFO -   A1100040 (지역센터): allocated=220.0, overflow=32.0, utilization=100.0%
+2025-09-09 06:08:20,147 - src.allocation.gravity_model - INFO -   A1100002 (지역센터): allocated=193.0, overflow=35.0, utilization=100.0%
+2025-09-09 06:08:20,148 - src.allocation.gravity_model - INFO -   A1100008 (권역센터): allocated=173.0, overflow=29.0, utilization=100.0%
+2025-09-09 06:08:20,148 - src.allocation.gravity_model - INFO -   A1100013 (권역센터): allocated=142.0, overflow=23.0, utilization=100.0%
+2025-09-09 06:08:20,148 - src.allocation.gravity_model - INFO -   A1100053 (지역센터): allocated=100.0, overflow=22.0, utilization=100.0%
+2025-09-09 06:08:20,148 - src.allocation.gravity_model - INFO - Total allocation: 1008.0 visits, 202.0 overflow redistributed, 11.0 hospitals used
+2025-09-09 06:08:20,149 - src.allocation.ipf_adjuster - INFO - Starting IPF adjustment for date: 20170101
+2025-09-09 06:08:20,153 - src.allocation.ipf_adjuster - INFO - Loaded allocation matrix: 175 groups × 11 hospitals
+2025-09-09 06:08:20,154 - src.allocation.ipf_adjuster - INFO - Target margins: 175 row margins, 12 col margins
+2025-09-09 06:08:20,154 - src.allocation.ipf_adjuster - INFO - Running IPF algorithm
+2025-09-09 06:08:20,155 - src.allocation.ipf_adjuster - ERROR - IPF adjustment failed: Cannot cast ufunc 'divide' output from dtype('float64') to dtype('int32') with casting rule 'same_kind'
+2025-09-09 06:08:20,155 - __main__ - WARNING - IPF adjustment failed for 20170101: {'success': False, 'error': "Cannot cast ufunc 'divide' output from dtype('float64') to dtype('int32') with casting rule 'same_kind'"}
+2025-09-09 06:08:20,155 - __main__ - INFO - Processing allocation for date: 20170102
+2025-09-09 06:08:20,155 - src.allocation.gravity_model - INFO - Allocating hospital visits for date: 20170102
+2025-09-09 06:08:20,175 - src.allocation.gravity_model - INFO - Processing capacity constraints and overflow redistribution
+2025-09-09 06:08:20,212 - src.allocation.gravity_model - INFO - Hospital allocation completed: 170 allocation records
+2025-09-09 06:08:20,212 - src.allocation.gravity_model - INFO - Total allocated visits: 359
+2025-09-09 06:08:20,213 - src.allocation.gravity_model - INFO - Hospital allocation summary:
+2025-09-09 06:08:20,213 - src.allocation.gravity_model - INFO -   A1100008 (권역센터): allocated=91.0, overflow=0.0, utilization=52.6%
+2025-09-09 06:08:20,213 - src.allocation.gravity_model - INFO -   A1100002 (지역센터): allocated=80.0, overflow=0.0, utilization=41.5%
+2025-09-09 06:08:20,214 - src.allocation.gravity_model - INFO -   A1100040 (지역센터): allocated=72.0, overflow=0.0, utilization=32.7%
+2025-09-09 06:08:20,214 - src.allocation.gravity_model - INFO -   A1100013 (권역센터): allocated=64.0, overflow=0.0, utilization=45.1%
+2025-09-09 06:08:20,214 - src.allocation.gravity_model - INFO -   A1100053 (지역센터): allocated=32.0, overflow=0.0, utilization=32.0%
+2025-09-09 06:08:20,214 - src.allocation.gravity_model - INFO - Total allocation: 359.0 visits, 0.0 overflow redistributed, 11.0 hospitals used
+2025-09-09 06:08:20,214 - src.allocation.ipf_adjuster - INFO - Starting IPF adjustment for date: 20170102
+2025-09-09 06:08:20,216 - src.allocation.ipf_adjuster - INFO - Loaded allocation matrix: 78 groups × 11 hospitals
+2025-09-09 06:08:20,217 - src.allocation.ipf_adjuster - INFO - Target margins: 78 row margins, 12 col margins
+2025-09-09 06:08:20,217 - src.allocation.ipf_adjuster - INFO - Running IPF algorithm
+2025-09-09 06:08:20,217 - src.allocation.ipf_adjuster - ERROR - IPF adjustment failed: Cannot cast ufunc 'divide' output from dtype('float64') to dtype('int32') with casting rule 'same_kind'
+2025-09-09 06:08:20,217 - __main__ - WARNING - IPF adjustment failed for 20170102: {'success': False, 'error': "Cannot cast ufunc 'divide' output from dtype('float64') to dtype('int32') with casting rule 'same_kind'"}
+2025-09-09 06:08:20,217 - __main__ - INFO - Processing allocation for date: 20170103
+2025-09-09 06:08:20,217 - src.allocation.gravity_model - INFO - Allocating hospital visits for date: 20170103
+2025-09-09 06:08:20,236 - src.allocation.gravity_model - INFO - Processing capacity constraints and overflow redistribution
+2025-09-09 06:08:20,273 - src.allocation.gravity_model - INFO - Hospital allocation completed: 171 allocation records
+2025-09-09 06:08:20,273 - src.allocation.gravity_model - INFO - Total allocated visits: 344
+2025-09-09 06:08:20,274 - src.allocation.gravity_model - INFO - Hospital allocation summary:
+2025-09-09 06:08:20,274 - src.allocation.gravity_model - INFO -   A1100008 (권역센터): allocated=92.0, overflow=0.0, utilization=53.2%
+2025-09-09 06:08:20,274 - src.allocation.gravity_model - INFO -   A1100040 (지역센터): allocated=76.0, overflow=0.0, utilization=34.5%
+2025-09-09 06:08:20,274 - src.allocation.gravity_model - INFO -   A1100002 (지역센터): allocated=63.0, overflow=0.0, utilization=32.6%
+2025-09-09 06:08:20,274 - src.allocation.gravity_model - INFO -   A1100013 (권역센터): allocated=54.0, overflow=0.0, utilization=38.0%
+2025-09-09 06:08:20,274 - src.allocation.gravity_model - INFO -   A1100053 (지역센터): allocated=40.0, overflow=0.0, utilization=40.0%
+2025-09-09 06:08:20,275 - src.allocation.gravity_model - INFO - Total allocation: 344.0 visits, 0.0 overflow redistributed, 11.0 hospitals used
+2025-09-09 06:08:20,275 - src.allocation.ipf_adjuster - INFO - Starting IPF adjustment for date: 20170103
+2025-09-09 06:08:20,276 - src.allocation.ipf_adjuster - INFO - Loaded allocation matrix: 77 groups × 11 hospitals
+2025-09-09 06:08:20,277 - src.allocation.ipf_adjuster - INFO - Target margins: 77 row margins, 12 col margins
+2025-09-09 06:08:20,277 - src.allocation.ipf_adjuster - INFO - Running IPF algorithm
+2025-09-09 06:08:20,277 - src.allocation.ipf_adjuster - ERROR - IPF adjustment failed: Cannot cast ufunc 'divide' output from dtype('float64') to dtype('int32') with casting rule 'same_kind'
+2025-09-09 06:08:20,278 - __main__ - WARNING - IPF adjustment failed for 20170103: {'success': False, 'error': "Cannot cast ufunc 'divide' output from dtype('float64') to dtype('int32') with casting rule 'same_kind'"}
+2025-09-09 06:08:20,278 - __main__ - INFO - Phase 3 completed successfully
+2025-09-09 06:08:20,278 - __main__ - INFO - === Starting Phase 4: Clinical Attributes Generation ===
+2025-09-09 06:08:20,278 - __main__ - INFO - Step 1: Initializing clinical records table
+2025-09-09 06:08:20,278 - src.clinical.dag_generator - INFO - Initializing clinical records table
+2025-09-09 06:08:20,278 - src.clinical.dag_generator - INFO - Clinical records table created successfully
+2025-09-09 06:08:20,278 - __main__ - INFO - Step 2: Initializing diagnosis tables
+2025-09-09 06:08:20,278 - src.clinical.diagnosis_generator - INFO - Initializing diagnosis tables
+2025-09-09 06:08:20,278 - src.clinical.diagnosis_generator - INFO - Diagnosis tables created successfully
+2025-09-09 06:08:20,278 - __main__ - INFO - Generating clinical attributes for date: 20170101
+2025-09-09 06:08:20,278 - src.clinical.dag_generator - INFO - Generating clinical attributes for date: 20170101
+2025-09-09 06:08:20,278 - src.clinical.dag_generator - INFO - Generating 1008 clinical records from 398 allocation groups
+2025-09-09 06:08:20,740 - src.clinical.dag_generator - INFO - Batch inserting 1008 clinical records
+2025-09-09 06:08:21,248 - src.clinical.dag_generator - INFO - Batch insertion completed successfully
+2025-09-09 06:08:21,251 - src.clinical.dag_generator - INFO - Clinical attributes generation completed: 1008 records
+2025-09-09 06:08:21,251 - __main__ - INFO - Clinical attributes generated: 1008 records
+2025-09-09 06:08:21,251 - src.clinical.diagnosis_generator - INFO - Generating diagnoses for date: 20170101
+2025-09-09 06:08:21,253 - src.clinical.diagnosis_generator - INFO - Generating diagnoses for 1008 patients
+2025-09-09 06:08:23,429 - src.clinical.diagnosis_generator - INFO - Batch inserting 1564 ER diagnoses
+2025-09-09 06:08:23,745 - src.clinical.diagnosis_generator - INFO - ER diagnoses batch insertion completed
+2025-09-09 06:08:23,745 - src.clinical.diagnosis_generator - INFO - Batch inserting 989 admission diagnoses
+2025-09-09 06:08:23,942 - src.clinical.diagnosis_generator - INFO - Admission diagnoses batch insertion completed
+2025-09-09 06:08:23,945 - src.clinical.diagnosis_generator - INFO - Diagnosis generation completed: 1564 ER diagnoses, 989 admission diagnoses
+2025-09-09 06:08:23,946 - __main__ - INFO - Diagnoses generated: 1564 ER, 989 admission
+2025-09-09 06:08:23,946 - src.clinical.vitals_generator - INFO - Generating vital signs for date: 20170101
+2025-09-09 06:08:23,946 - src.clinical.vitals_generator - INFO - Generating vital signs for 1008 patients
+2025-09-09 06:08:23,963 - src.clinical.vitals_generator - INFO - Batch updating vital signs for 1008 patients
+2025-09-09 06:08:24,167 - src.clinical.vitals_generator - INFO - Vital signs batch update completed
+2025-09-09 06:08:24,170 - src.clinical.vitals_generator - INFO - Vital signs generation completed: 1008 patients updated
+2025-09-09 06:08:24,170 - __main__ - INFO - Vital signs generated for 1008 patients
+2025-09-09 06:08:24,170 - __main__ - INFO - Generating clinical attributes for date: 20170102
+2025-09-09 06:08:24,170 - src.clinical.dag_generator - INFO - Generating clinical attributes for date: 20170102
+2025-09-09 06:08:24,171 - src.clinical.dag_generator - INFO - Generating 359 clinical records from 170 allocation groups
+2025-09-09 06:08:24,333 - src.clinical.dag_generator - INFO - Batch inserting 359 clinical records
+2025-09-09 06:08:24,494 - src.clinical.dag_generator - INFO - Batch insertion completed successfully
+2025-09-09 06:08:24,495 - src.clinical.dag_generator - INFO - Clinical attributes generation completed: 359 records
+2025-09-09 06:08:24,496 - __main__ - INFO - Clinical attributes generated: 359 records
+2025-09-09 06:08:24,496 - src.clinical.diagnosis_generator - INFO - Generating diagnoses for date: 20170102
+2025-09-09 06:08:24,497 - src.clinical.diagnosis_generator - INFO - Generating diagnoses for 359 patients
+2025-09-09 06:08:25,285 - src.clinical.diagnosis_generator - INFO - Batch inserting 535 ER diagnoses
+2025-09-09 06:08:25,385 - src.clinical.diagnosis_generator - INFO - ER diagnoses batch insertion completed
+2025-09-09 06:08:25,385 - src.clinical.diagnosis_generator - INFO - Batch inserting 411 admission diagnoses
+2025-09-09 06:08:25,469 - src.clinical.diagnosis_generator - INFO - Admission diagnoses batch insertion completed
+2025-09-09 06:08:25,471 - src.clinical.diagnosis_generator - INFO - Diagnosis generation completed: 535 ER diagnoses, 411 admission diagnoses
+2025-09-09 06:08:25,471 - __main__ - INFO - Diagnoses generated: 535 ER, 411 admission
+2025-09-09 06:08:25,471 - src.clinical.vitals_generator - INFO - Generating vital signs for date: 20170102
+2025-09-09 06:08:25,471 - src.clinical.vitals_generator - INFO - Generating vital signs for 359 patients
+2025-09-09 06:08:25,478 - src.clinical.vitals_generator - INFO - Batch updating vital signs for 359 patients
+2025-09-09 06:08:25,556 - src.clinical.vitals_generator - INFO - Vital signs batch update completed
+2025-09-09 06:08:25,558 - src.clinical.vitals_generator - INFO - Vital signs generation completed: 359 patients updated
+2025-09-09 06:08:25,558 - __main__ - INFO - Vital signs generated for 359 patients
+2025-09-09 06:08:25,558 - __main__ - INFO - Generating clinical attributes for date: 20170103
+2025-09-09 06:08:25,558 - src.clinical.dag_generator - INFO - Generating clinical attributes for date: 20170103
+2025-09-09 06:08:25,559 - src.clinical.dag_generator - INFO - Generating 344 clinical records from 171 allocation groups
+2025-09-09 06:08:25,715 - src.clinical.dag_generator - INFO - Batch inserting 344 clinical records
+2025-09-09 06:08:25,869 - src.clinical.dag_generator - INFO - Batch insertion completed successfully
+2025-09-09 06:08:25,871 - src.clinical.dag_generator - INFO - Clinical attributes generation completed: 344 records
+2025-09-09 06:08:25,871 - __main__ - INFO - Clinical attributes generated: 344 records
+2025-09-09 06:08:25,871 - src.clinical.diagnosis_generator - INFO - Generating diagnoses for date: 20170103
+2025-09-09 06:08:25,872 - src.clinical.diagnosis_generator - INFO - Generating diagnoses for 344 patients
+2025-09-09 06:08:26,687 - src.clinical.diagnosis_generator - INFO - Batch inserting 546 ER diagnoses
+2025-09-09 06:08:26,788 - src.clinical.diagnosis_generator - INFO - ER diagnoses batch insertion completed
+2025-09-09 06:08:26,788 - src.clinical.diagnosis_generator - INFO - Batch inserting 381 admission diagnoses
+2025-09-09 06:08:26,863 - src.clinical.diagnosis_generator - INFO - Admission diagnoses batch insertion completed
+2025-09-09 06:08:26,865 - src.clinical.diagnosis_generator - INFO - Diagnosis generation completed: 546 ER diagnoses, 381 admission diagnoses
+2025-09-09 06:08:26,865 - __main__ - INFO - Diagnoses generated: 546 ER, 381 admission
+2025-09-09 06:08:26,865 - src.clinical.vitals_generator - INFO - Generating vital signs for date: 20170103
+2025-09-09 06:08:26,866 - src.clinical.vitals_generator - INFO - Generating vital signs for 344 patients
+2025-09-09 06:08:26,872 - src.clinical.vitals_generator - INFO - Batch updating vital signs for 344 patients
+2025-09-09 06:08:26,949 - src.clinical.vitals_generator - INFO - Vital signs batch update completed
+2025-09-09 06:08:26,951 - src.clinical.vitals_generator - INFO - Vital signs generation completed: 344 patients updated
+2025-09-09 06:08:26,951 - __main__ - INFO - Vital signs generated for 344 patients
+2025-09-09 06:08:26,951 - __main__ - INFO - Phase 4 completed successfully
+2025-09-09 06:08:26,951 - __main__ - INFO - === Pipeline Execution Summary ===
+2025-09-09 06:08:26,951 - __main__ - INFO - Phases completed: 2/2
+2025-09-09 06:08:26,951 - __main__ - INFO - Success rate: 100.0%
+2025-09-09 06:08:26,951 - __main__ - INFO - 🎉 All selected phases completed successfully!
+2025-09-09 06:08:26,951 - __main__ - INFO - Generating final summary report
+2025-09-09 06:08:26,952 - __main__ - INFO - Final summary report saved: outputs/pipeline_summary_report.md

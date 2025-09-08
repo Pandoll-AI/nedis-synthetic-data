@@ -1,0 +1,151 @@
+2025-09-08 16:31:25,248 - __main__ - INFO - Initializing database and configuration...
+2025-09-08 16:31:25,249 - core.config - INFO - Configuration loaded from config/generation_params.yaml
+2025-09-08 16:31:25,316 - core.database - INFO - Connected to database: nedis_sample.duckdb
+2025-09-08 16:31:25,324 - core.database - INFO - Database schemas created successfully
+2025-09-08 16:31:25,324 - __main__ - INFO - Database: nedis_sample.duckdb
+2025-09-08 16:31:25,324 - __main__ - INFO - Target records: 9,200,000
+2025-09-08 16:31:25,336 - __main__ - INFO - Found 276 records in nedis_meta.population_margins
+2025-09-08 16:31:25,336 - __main__ - INFO - Found 12 records in nedis_meta.hospital_capacity
+2025-09-08 16:31:25,336 - __main__ - INFO - Found 993 records in nedis_meta.ktas_conditional_prob
+2025-09-08 16:31:25,339 - __main__ - INFO - Population margins quality: avg_visits=1067.8, range=10.0-20873.0
+2025-09-08 16:31:25,339 - __main__ - INFO - 
+Starting: Population Volume Generation
+2025-09-08 16:31:25,339 - __main__ - INFO - === Step 1: Population Volume Generation ===
+2025-09-08 16:31:25,346 - __main__ - INFO - Target total records: 9,200,000
+2025-09-08 16:31:25,347 - population.generator - INFO - Starting yearly volume generation (target: 9,200,000)
+2025-09-08 16:31:25,352 - population.generator - INFO - Calculated proportions for 17 regions
+2025-09-08 16:31:25,352 - population.generator - INFO - Regional allocation: 9,200,000 total across 17 regions
+2025-09-08 16:31:25,352 - population.generator - INFO - Processing 17 regions...
+2025-09-08 16:31:25,385 - population.generator - INFO - Generated 276 combinations with 9,200,000.0 total records
+2025-09-08 16:31:25,385 - population.generator - INFO - Target vs Actual: 9,200,000 vs 9,200,000.0 (diff: 0.0)
+2025-09-08 16:31:25,387 - __main__ - INFO - ✓ Population volume generation completed:
+2025-09-08 16:31:25,387 - __main__ - INFO -     Combinations: 276
+2025-09-08 16:31:25,387 - __main__ - INFO -     Total records: 9,200,000.0
+2025-09-08 16:31:25,387 - __main__ - INFO -     Duration: 0.04s
+2025-09-08 16:31:25,395 - __main__ - WARNING - Validation issues found: ['Unusual ratio: synthetic/original = 31.22', '13 extremely high values detected']
+2025-09-08 16:31:25,395 - __main__ - INFO - ✓ Population Volume Generation completed in 0.06s
+2025-09-08 16:31:25,395 - __main__ - INFO - 
+Starting: Temporal Pattern Generation
+2025-09-08 16:31:25,395 - __main__ - INFO - === Step 2: Temporal Pattern Generation ===
+2025-09-08 16:31:25,396 - temporal.nhpp_generator - INFO - Starting daily event generation for year 2017
+2025-09-08 16:31:25,396 - temporal.nhpp_generator - INFO - Found 276 yearly volume combinations
+2025-09-08 16:31:25,397 - temporal.nhpp_generator - INFO - Generated 365 dates for year 2017
+2025-09-08 16:31:25,873 - temporal.nhpp_generator - INFO - Generated 36,308 daily volume records
+2025-09-08 16:31:25,873 - temporal.nhpp_generator - INFO - Total verification: Yearly=9,200,000.0, Daily=9,200,089.0
+2025-09-08 16:31:25,873 - temporal.nhpp_generator - INFO - Total difference: 0.001% (acceptable)
+2025-09-08 16:31:25,875 - __main__ - INFO - ✓ Temporal pattern generation completed:
+2025-09-08 16:31:25,875 - __main__ - INFO -     Daily records: 36,308
+2025-09-08 16:31:25,875 - __main__ - INFO -     Total visits: 9,200,089.0
+2025-09-08 16:31:25,875 - __main__ - INFO -     Duration: 0.48s
+2025-09-08 16:31:25,883 - core.database - ERROR - Query execution failed: Conversion Error: invalid date field format: "20170108", expected format is (YYYY-MM-DD) when casting from source column vst_dt
+
+LINE 6:                 CASE DAYOFWEEK(CAST(vst_dt AS DATE))
+                                       ^
+2025-09-08 16:31:25,883 - core.database - ERROR - Query: 
+            SELECT 
+                vst_dt,
+                SUM(synthetic_daily_count) as daily_total,
+                -- 요일 계산
+                CASE DAYOFWEEK(CAST(vst_dt AS DATE))
+                    WHEN 1 THEN 'Sunday'
+                    WHEN 2 THEN 'Monday'
+                    WHEN 3 THEN 'Tuesday'
+                    WHEN 4 THEN 'Wednesday'
+                    WHEN 5 THEN 'Thursday'
+                    WHEN 6 THEN 'Friday'
+                    WHEN 7 THEN 'Saturday'
+                END as 
+2025-09-08 16:31:25,886 - core.database - ERROR - Query execution failed: Binder Error: column "avg_daily" must appear in the GROUP BY clause or must be part of an aggregate function.
+Either add it to the GROUP BY list, or use "ANY_VALUE(avg_daily)" if the exact value of "avg_daily" is not important.
+
+LINE 17:                 s.avg_daily, s.std_daily
+                         ^
+2025-09-08 16:31:25,887 - core.database - ERROR - Query: 
+            WITH daily_totals AS (
+                SELECT vst_dt, SUM(synthetic_daily_count) as daily_total
+                FROM nedis_synthetic.daily_volumes
+                GROUP BY vst_dt
+            ),
+            stats AS (
+                SELECT 
+                    AVG(daily_total) as avg_daily,
+                    STDDEV(daily_total) as std_daily
+                FROM daily_totals
+            )
+            SELECT 
+                COUNT(CASE WHEN dt.daily_total > s.avg_daily + 3 * s.std_d
+2025-09-08 16:31:25,887 - __main__ - WARNING - Temporal validation issues: []
+2025-09-08 16:31:25,887 - __main__ - INFO - ✓ Temporal Pattern Generation completed in 0.49s
+2025-09-08 16:31:25,887 - __main__ - INFO - 
+Generating Phase 2 completion report...
+2025-09-08 16:31:25,887 - __main__ - INFO - === Step 3: Generating Phase 2 Report ===
+2025-09-08 16:31:25,894 - core.database - ERROR - Query execution failed: Conversion Error: invalid date field format: "20170120", expected format is (YYYY-MM-DD) when casting from source column vst_dt
+
+LINE 6:                 CASE DAYOFWEEK(CAST(vst_dt AS DATE))
+                                       ^
+2025-09-08 16:31:25,895 - core.database - ERROR - Query: 
+            SELECT 
+                vst_dt,
+                SUM(synthetic_daily_count) as daily_total,
+                -- 요일 계산
+                CASE DAYOFWEEK(CAST(vst_dt AS DATE))
+                    WHEN 1 THEN 'Sunday'
+                    WHEN 2 THEN 'Monday'
+                    WHEN 3 THEN 'Tuesday'
+                    WHEN 4 THEN 'Wednesday'
+                    WHEN 5 THEN 'Thursday'
+                    WHEN 6 THEN 'Friday'
+                    WHEN 7 THEN 'Saturday'
+                END as 
+2025-09-08 16:31:25,897 - core.database - ERROR - Query execution failed: Binder Error: column "avg_daily" must appear in the GROUP BY clause or must be part of an aggregate function.
+Either add it to the GROUP BY list, or use "ANY_VALUE(avg_daily)" if the exact value of "avg_daily" is not important.
+
+LINE 17:                 s.avg_daily, s.std_daily
+                         ^
+2025-09-08 16:31:25,897 - core.database - ERROR - Query: 
+            WITH daily_totals AS (
+                SELECT vst_dt, SUM(synthetic_daily_count) as daily_total
+                FROM nedis_synthetic.daily_volumes
+                GROUP BY vst_dt
+            ),
+            stats AS (
+                SELECT 
+                    AVG(daily_total) as avg_daily,
+                    STDDEV(daily_total) as std_daily
+                FROM daily_totals
+            )
+            SELECT 
+                COUNT(CASE WHEN dt.daily_total > s.avg_daily + 3 * s.std_d
+2025-09-08 16:31:25,903 - __main__ - INFO - ✓ Phase 2 report generated: outputs/phase2_complete_report_20250908_163125.json
+2025-09-08 16:31:25,903 - __main__ - INFO - 
+============================================================
+2025-09-08 16:31:25,903 - __main__ - INFO - PHASE 2 COMPLETION SUMMARY
+2025-09-08 16:31:25,903 - __main__ - INFO - ============================================================
+2025-09-08 16:31:25,903 - __main__ - INFO - Population Volumes Generated:
+2025-09-08 16:31:25,903 - __main__ - INFO -   Combinations: 276.0
+2025-09-08 16:31:25,903 - __main__ - INFO -   Total Records: 9,200,000.0
+2025-09-08 16:31:25,903 - __main__ - INFO -   Unique Regions: 17.0
+2025-09-08 16:31:25,903 - __main__ - INFO -   Average per Combination: 33333.3
+2025-09-08 16:31:25,903 - __main__ - INFO - Temporal Patterns Generated:
+2025-09-08 16:31:25,903 - __main__ - INFO -   Daily Records: 36,308.0
+2025-09-08 16:31:25,903 - __main__ - INFO -   Unique Dates: 365.0
+2025-09-08 16:31:25,903 - __main__ - INFO -   Total Visits: 9,200,089.0
+2025-09-08 16:31:25,903 - __main__ - INFO -   Average Daily Visits: 253.4
+2025-09-08 16:31:25,903 - __main__ - INFO - Consistency Verification:
+2025-09-08 16:31:25,903 - __main__ - INFO -   Yearly Total: 9,200,000.0
+2025-09-08 16:31:25,903 - __main__ - INFO -   Daily Total: 9,200,089.0
+2025-09-08 16:31:25,903 - __main__ - INFO -   Difference: 0.001%
+2025-09-08 16:31:25,903 - __main__ - WARNING - Population validation issues: 2
+2025-09-08 16:31:25,903 - __main__ - WARNING - Temporal validation issues: 0
+2025-09-08 16:31:25,903 - __main__ - INFO - ============================================================
+2025-09-08 16:31:25,903 - __main__ - INFO - 
+🎉 Phase 2 COMPLETED SUCCESSFULLY in 0.66s
+2025-09-08 16:31:25,903 - __main__ - INFO - All 2 steps completed: Population Volume Generation, Temporal Pattern Generation
+2025-09-08 16:31:25,903 - core.database - INFO - Database optimized (VACUUM + ANALYZE)
+2025-09-08 16:31:25,903 - __main__ - INFO - Database optimized
+2025-09-08 16:31:25,903 - __main__ - INFO - 
+Next steps:
+2025-09-08 16:31:25,903 - __main__ - INFO - 1. Review the generated population and temporal patterns
+2025-09-08 16:31:25,903 - __main__ - INFO - 2. Verify the synthetic data quality metrics
+2025-09-08 16:31:25,903 - __main__ - INFO - 3. Run Phase 3: Hospital Allocation & Capacity Constraints
+2025-09-08 16:31:25,944 - core.database - INFO - Database connection closed

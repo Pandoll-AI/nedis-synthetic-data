@@ -1,0 +1,281 @@
+{
+  "generation_timestamp": "2025-09-08T16:29:08.094865",
+  "original_data": {
+    "total_records": "322573",
+    "top_regions": [
+      {
+        "pat_do_cd": "11",
+        "count": 253072,
+        "percentage": 85.76
+      },
+      {
+        "pat_do_cd": "41",
+        "count": 28743,
+        "percentage": 9.74
+      },
+      {
+        "pat_do_cd": "28",
+        "count": 2723,
+        "percentage": 0.92
+      },
+      {
+        "pat_do_cd": "44",
+        "count": 1566,
+        "percentage": 0.53
+      },
+      {
+        "pat_do_cd": "42",
+        "count": 1379,
+        "percentage": 0.47
+      },
+      {
+        "pat_do_cd": "46",
+        "count": 1053,
+        "percentage": 0.36
+      },
+      {
+        "pat_do_cd": "47",
+        "count": 1049,
+        "percentage": 0.36
+      },
+      {
+        "pat_do_cd": "45",
+        "count": 1012,
+        "percentage": 0.34
+      },
+      {
+        "pat_do_cd": "43",
+        "count": 954,
+        "percentage": 0.32
+      },
+      {
+        "pat_do_cd": "48",
+        "count": 815,
+        "percentage": 0.28
+      }
+    ],
+    "gender_distribution": [
+      {
+        "pat_sex": "F",
+        "count": 154702,
+        "percentage": 47.96
+      },
+      {
+        "pat_sex": "M",
+        "count": 167871,
+        "percentage": 52.04
+      }
+    ],
+    "ktas_distribution": [
+      {
+        "ktas_fstu": "-",
+        "count": 109661,
+        "percentage": 34.0
+      },
+      {
+        "ktas_fstu": "1",
+        "count": 2142,
+        "percentage": 0.66
+      },
+      {
+        "ktas_fstu": "2",
+        "count": 17730,
+        "percentage": 5.5
+      },
+      {
+        "ktas_fstu": "3",
+        "count": 91556,
+        "percentage": 28.38
+      },
+      {
+        "ktas_fstu": "4",
+        "count": 80476,
+        "percentage": 24.95
+      },
+      {
+        "ktas_fstu": "5",
+        "count": 20910,
+        "percentage": 6.48
+      },
+      {
+        "ktas_fstu": "8",
+        "count": 98,
+        "percentage": 0.03
+      }
+    ],
+    "age_distribution": [
+      {
+        "pat_age_gr": "01",
+        "count": 4404,
+        "percentage": 1.37
+      },
+      {
+        "pat_age_gr": "09",
+        "count": 25712,
+        "percentage": 7.97
+      },
+      {
+        "pat_age_gr": "10",
+        "count": 20483,
+        "percentage": 6.35
+      },
+      {
+        "pat_age_gr": "11",
+        "count": 3,
+        "percentage": 0.0
+      },
+      {
+        "pat_age_gr": "20",
+        "count": 48029,
+        "percentage": 14.89
+      },
+      {
+        "pat_age_gr": "30",
+        "count": 39379,
+        "percentage": 12.21
+      },
+      {
+        "pat_age_gr": "40",
+        "count": 36153,
+        "percentage": 11.21
+      },
+      {
+        "pat_age_gr": "50",
+        "count": 44350,
+        "percentage": 13.75
+      },
+      {
+        "pat_age_gr": "60",
+        "count": 39089,
+        "percentage": 12.12
+      },
+      {
+        "pat_age_gr": "70",
+        "count": 38072,
+        "percentage": 11.8
+      },
+      {
+        "pat_age_gr": "80",
+        "count": 25209,
+        "percentage": 7.81
+      },
+      {
+        "pat_age_gr": "90",
+        "count": 1679,
+        "percentage": 0.52
+      },
+      {
+        "pat_age_gr": "99",
+        "count": 11,
+        "percentage": 0.0
+      }
+    ]
+  },
+  "population_margins": {
+    "total_combinations": 276.0,
+    "total_visits": 294708.0,
+    "avg_visits": 1067.7826086956522,
+    "min_visits": 10.0,
+    "max_visits": 20873.0,
+    "top_regions_combinations": [
+      {
+        "pat_do_cd": "11",
+        "combinations": 22,
+        "total_visits": 253064.0
+      },
+      {
+        "pat_do_cd": "41",
+        "combinations": 22,
+        "total_visits": 28743.0
+      },
+      {
+        "pat_do_cd": "28",
+        "combinations": 20,
+        "total_visits": 2716.0
+      },
+      {
+        "pat_do_cd": "44",
+        "combinations": 18,
+        "total_visits": 1537.0
+      },
+      {
+        "pat_do_cd": "42",
+        "combinations": 18,
+        "total_visits": 1358.0
+      },
+      {
+        "pat_do_cd": "46",
+        "combinations": 18,
+        "total_visits": 1046.0
+      },
+      {
+        "pat_do_cd": "47",
+        "combinations": 18,
+        "total_visits": 1031.0
+      },
+      {
+        "pat_do_cd": "45",
+        "combinations": 17,
+        "total_visits": 989.0
+      },
+      {
+        "pat_do_cd": "43",
+        "combinations": 18,
+        "total_visits": 946.0
+      },
+      {
+        "pat_do_cd": "48",
+        "combinations": 17,
+        "total_visits": 800.0
+      }
+    ]
+  },
+  "hospital_capacity": {
+    "total_hospitals": 12.0,
+    "hospitals_with_stats": 12.0,
+    "avg_daily_capacity": 73.75,
+    "min_daily_capacity": 36.0,
+    "max_daily_capacity": 154.0,
+    "hospital_types": [
+      {
+        "gubun": "지역기관",
+        "count": 7,
+        "avg_capacity": 43.0
+      },
+      {
+        "gubun": "지역센터",
+        "count": 3,
+        "avg_capacity": 119.0
+      },
+      {
+        "gubun": "권역센터",
+        "count": 2,
+        "avg_capacity": 113.5
+      }
+    ]
+  },
+  "data_quality": {
+    "population_margins_issues": 0,
+    "population_margins_details": {},
+    "missing_values": [
+      {
+        "field": "pat_do_cd",
+        "missing_count": 27483.0,
+        "total_count": 322573,
+        "missing_percentage": 8.52
+      },
+      {
+        "field": "pat_age_gr",
+        "missing_count": 0.0,
+        "total_count": 322573,
+        "missing_percentage": 0.0
+      },
+      {
+        "field": "pat_sex",
+        "missing_count": 0.0,
+        "total_count": 322573,
+        "missing_percentage": 0.0
+      }
+    ]
+  }
+}

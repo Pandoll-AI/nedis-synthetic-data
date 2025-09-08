@@ -1,0 +1,89 @@
+2025-09-09 06:59:47,883 - __main__ - INFO - === NEDIS Vectorized Synthetic Data Pipeline ===
+2025-09-09 06:59:47,883 - __main__ - INFO - Initializing database connection
+2025-09-09 06:59:47,940 - src.core.database - INFO - Connected to database: nedis_sample.duckdb
+2025-09-09 06:59:47,946 - src.core.database - INFO - Database schemas created successfully
+2025-09-09 06:59:47,948 - src.core.config - INFO - Configuration loaded from config/generation_params.yaml
+2025-09-09 06:59:47,948 - __main__ - INFO - === Stage 1: Vectorized Patient Generation ===
+2025-09-09 06:59:47,948 - src.vectorized.patient_generator - INFO - Starting vectorized patient generation: 322,573 records
+2025-09-09 06:59:47,948 - src.vectorized.patient_generator - INFO - Loading reference data for vectorized generation
+2025-09-09 06:59:47,962 - src.vectorized.patient_generator - INFO - Caching probability distributions
+2025-09-09 06:59:47,996 - src.vectorized.patient_generator - INFO - Vectorized generation of 322,573 patients
+2025-09-09 06:59:48,048 - src.vectorized.patient_generator - INFO - Vectorized hospital assignment using gravity model
+2025-09-09 06:59:48,219 - src.vectorized.patient_generator - INFO - Generating independent clinical attributes
+2025-09-09 06:59:48,368 - src.vectorized.patient_generator - INFO - Generating conditional clinical attributes
+2025-09-09 06:59:48,861 - src.vectorized.patient_generator - INFO - Generated 322,573 patients successfully
+2025-09-09 06:59:48,865 - __main__ - INFO - Stage 1 completed in 0.92 seconds
+2025-09-09 06:59:48,865 - __main__ - INFO - Generated 322,573 patients
+2025-09-09 06:59:48,865 - __main__ - INFO - === Stage 2: Temporal Pattern Assignment ===
+2025-09-09 06:59:48,865 - src.vectorized.temporal_assigner - INFO - Assigning temporal patterns to 322,573 patients
+2025-09-09 06:59:48,865 - src.vectorized.temporal_assigner - INFO - Loading temporal patterns for year 2017
+2025-09-09 06:59:48,881 - src.vectorized.temporal_assigner - INFO - Calculating daily volumes using NHPP model
+2025-09-09 06:59:48,884 - src.vectorized.temporal_assigner - INFO - Generated daily volumes: total = 322,397
+2025-09-09 06:59:48,884 - src.vectorized.temporal_assigner - INFO - Vectorized date assignment
+2025-09-09 06:59:48,884 - src.vectorized.temporal_assigner - WARNING - Patient count (322,573) != volume slots (322,397)
+2025-09-09 06:59:48,961 - src.vectorized.temporal_assigner - INFO - Date assignment completed: 365 unique dates
+2025-09-09 06:59:48,961 - src.vectorized.temporal_assigner - INFO - Vectorized time assignment
+2025-09-09 06:59:49,192 - src.vectorized.temporal_assigner - INFO - Temporal pattern assignment completed
+2025-09-09 06:59:49,192 - __main__ - INFO - Stage 2 completed in 0.33 seconds
+2025-09-09 06:59:49,192 - __main__ - INFO - === Stage 3: Capacity Constraint Processing ===
+2025-09-09 06:59:49,192 - src.vectorized.capacity_processor - INFO - Applying capacity constraints to 322,573 patients
+2025-09-09 06:59:49,192 - src.vectorized.capacity_processor - INFO - Loading capacity reference data
+2025-09-09 06:59:49,195 - src.vectorized.capacity_processor - INFO - Calculating dynamic capacity limits
+2025-09-09 06:59:49,255 - src.vectorized.capacity_processor - INFO - Calculated capacity limits for 4,380 date-hospital combinations
+2025-09-09 06:59:49,276 - src.vectorized.capacity_processor - INFO - Redistributing overflow patients
+2025-09-09 06:59:49,322 - src.vectorized.capacity_processor - INFO - Found 4380 overflow cases
+2025-09-09 07:00:09,437 - src.vectorized.capacity_processor - WARNING - No available hospitals for redistribution (count: 1000)
+2025-09-09 07:00:29,482 - src.vectorized.capacity_processor - WARNING - No available hospitals for redistribution (count: 2000)
+2025-09-09 07:00:49,581 - src.vectorized.capacity_processor - WARNING - No available hospitals for redistribution (count: 3000)
+2025-09-09 07:01:09,648 - src.vectorized.capacity_processor - WARNING - No available hospitals for redistribution (count: 4000)
+2025-09-09 07:01:17,389 - src.vectorized.capacity_processor - INFO - Successfully redistributed 0 patients
+2025-09-09 07:01:17,390 - src.vectorized.capacity_processor - INFO - Validating capacity constraint results
+2025-09-09 07:01:17,412 - src.vectorized.capacity_processor - WARNING - Still 4380 capacity violations remain
+2025-09-09 07:01:17,412 - src.vectorized.capacity_processor - WARNING - Total excess patients: 255354
+2025-09-09 07:01:17,415 - src.vectorized.capacity_processor - INFO - Capacity constraint processing completed
+2025-09-09 07:01:17,415 - __main__ - INFO - Stage 3 completed in 88.22 seconds
+2025-09-09 07:01:17,415 - __main__ - INFO - === Stage 4: Database Storage ===
+2025-09-09 07:01:17,415 - __main__ - INFO - Ensuring table structures
+2025-09-09 07:01:17,416 - __main__ - INFO - Saving 322,573 clinical records
+2025-09-09 07:01:35,844 - __main__ - ERROR - Pipeline execution failed: TransactionContext Error: cannot rollback - no transaction is active
+2025-09-09 07:01:35,851 - __main__ - ERROR - Traceback (most recent call last):
+  File "/opt/homebrew/Caskroom/miniconda/base/lib/python3.12/site-packages/pandas/io/sql.py", line 2650, in run_transaction
+    yield cur
+  File "/opt/homebrew/Caskroom/miniconda/base/lib/python3.12/site-packages/pandas/io/sql.py", line 1121, in insert
+    num_inserted = exec_insert(conn, keys, chunk_iter)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/lib/python3.12/site-packages/pandas/io/sql.py", line 2543, in _execute_insert_multi
+    conn.execute(self.insert_statement(num_rows=len(data_list)), flattened_data)
+duckdb.duckdb.CatalogException: Catalog Error: Table with name clinical_records does not exist!
+Did you mean "nedis_synthetic.clinical_records"?
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/sjlee/Projects/nedis-synthetic-data/scripts/run_vectorized_pipeline.py", line 136, in run_vectorized_pipeline
+    save_to_database(final_patients_df, db_manager, args)
+  File "/Users/sjlee/Projects/nedis-synthetic-data/scripts/run_vectorized_pipeline.py", line 194, in save_to_database
+    save_clinical_records(patients_df, db_manager)
+  File "/Users/sjlee/Projects/nedis-synthetic-data/scripts/run_vectorized_pipeline.py", line 266, in save_clinical_records
+    clinical_data.to_sql(
+  File "/opt/homebrew/Caskroom/miniconda/base/lib/python3.12/site-packages/pandas/util/_decorators.py", line 333, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/lib/python3.12/site-packages/pandas/core/generic.py", line 3106, in to_sql
+    return sql.to_sql(
+           ^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/lib/python3.12/site-packages/pandas/io/sql.py", line 844, in to_sql
+    return pandas_sql.to_sql(
+           ^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/lib/python3.12/site-packages/pandas/io/sql.py", line 2841, in to_sql
+    return table.insert(chunksize, method)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/lib/python3.12/site-packages/pandas/io/sql.py", line 1113, in insert
+    with self.pd_sql.run_transaction() as conn:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Caskroom/miniconda/base/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/opt/homebrew/Caskroom/miniconda/base/lib/python3.12/site-packages/pandas/io/sql.py", line 2653, in run_transaction
+    self.con.rollback()
+duckdb.duckdb.TransactionException: TransactionContext Error: cannot rollback - no transaction is active
+

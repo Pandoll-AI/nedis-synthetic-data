@@ -1,0 +1,60 @@
+2025-09-09 06:53:27,203 - __main__ - INFO - === NEDIS Vectorized Synthetic Data Pipeline ===
+2025-09-09 06:53:27,203 - __main__ - INFO - Initializing database connection
+2025-09-09 06:53:27,266 - src.core.database - INFO - Connected to database: nedis_sample.duckdb
+2025-09-09 06:53:27,273 - src.core.database - INFO - Database schemas created successfully
+2025-09-09 06:53:27,275 - src.core.config - INFO - Configuration loaded from config/generation_params.yaml
+2025-09-09 06:53:27,275 - __main__ - INFO - === Stage 1: Vectorized Patient Generation ===
+2025-09-09 06:53:27,275 - src.vectorized.patient_generator - INFO - Starting vectorized patient generation: 322,573 records
+2025-09-09 06:53:27,275 - src.vectorized.patient_generator - INFO - Loading reference data for vectorized generation
+2025-09-09 06:53:27,287 - src.vectorized.patient_generator - INFO - Caching probability distributions
+2025-09-09 06:53:27,324 - src.vectorized.patient_generator - INFO - Vectorized generation of 322,573 patients
+2025-09-09 06:53:27,382 - src.vectorized.patient_generator - INFO - Vectorized hospital assignment using gravity model
+2025-09-09 06:53:27,550 - src.vectorized.patient_generator - INFO - Generating independent clinical attributes
+2025-09-09 06:53:27,718 - src.vectorized.patient_generator - INFO - Generating conditional clinical attributes
+2025-09-09 06:53:28,236 - src.vectorized.patient_generator - INFO - Generated 322,573 patients successfully
+2025-09-09 06:53:28,241 - __main__ - INFO - Stage 1 completed in 0.97 seconds
+2025-09-09 06:53:28,241 - __main__ - INFO - Generated 322,573 patients
+2025-09-09 06:53:28,241 - __main__ - INFO - === Stage 2: Temporal Pattern Assignment ===
+2025-09-09 06:53:28,241 - src.vectorized.temporal_assigner - INFO - Assigning temporal patterns to 322,573 patients
+2025-09-09 06:53:28,241 - src.vectorized.temporal_assigner - INFO - Loading temporal patterns for year 2017
+2025-09-09 06:53:28,246 - src.core.database - ERROR - Query execution failed: Catalog Error: Scalar Function with name to_date does not exist!
+Did you mean "to_days"?
+
+LINE 4:                     EXTRACT(DOW FROM TO_DATE(vst_dt, 'YYYYMMDD')) as day_of_week,
+                                             ^
+2025-09-09 06:53:28,246 - src.core.database - ERROR - Query: 
+                SELECT 
+                    vst_dt,
+                    EXTRACT(DOW FROM TO_DATE(vst_dt, 'YYYYMMDD')) as day_of_week,
+                    EXTRACT(MONTH FROM TO_DATE(vst_dt, 'YYYYMMDD')) as month,
+                    COUNT(*) as daily_count
+                FROM nedis_original.nedis2017
+                GROUP BY vst_dt
+                ORDER BY vst_dt
+            
+2025-09-09 06:53:28,246 - __main__ - ERROR - Pipeline execution failed: Catalog Error: Scalar Function with name to_date does not exist!
+Did you mean "to_days"?
+
+LINE 4:                     EXTRACT(DOW FROM TO_DATE(vst_dt, 'YYYYMMDD')) as day_of_week,
+                                             ^
+2025-09-09 06:53:28,247 - __main__ - ERROR - Traceback (most recent call last):
+  File "/Users/sjlee/Projects/nedis-synthetic-data/scripts/run_vectorized_pipeline.py", line 93, in run_vectorized_pipeline
+    patients_with_dates_df = temporal_assigner.assign_temporal_patterns(
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/vectorized/temporal_assigner.py", line 64, in assign_temporal_patterns
+    self._load_temporal_patterns(temporal_config.year)
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/vectorized/temporal_assigner.py", line 88, in _load_temporal_patterns
+    original_daily_pattern = self.db.fetch_dataframe(f"""
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/core/database.py", line 105, in fetch_dataframe
+    result = self.execute_query(query, params)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/core/database.py", line 87, in execute_query
+    result = self.conn.execute(query)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+duckdb.duckdb.CatalogException: Catalog Error: Scalar Function with name to_date does not exist!
+Did you mean "to_days"?
+
+LINE 4:                     EXTRACT(DOW FROM TO_DATE(vst_dt, 'YYYYMMDD')) as day_of_week,
+                                             ^
+

@@ -1,0 +1,50 @@
+2025-09-09 06:37:15,037 - __main__ - INFO - === NEDIS Vectorized Synthetic Data Pipeline ===
+2025-09-09 06:37:15,037 - __main__ - INFO - Initializing database connection
+2025-09-09 06:37:15,098 - src.core.database - INFO - Connected to database: nedis_sample.duckdb
+2025-09-09 06:37:15,107 - src.core.database - INFO - Database schemas created successfully
+2025-09-09 06:37:15,109 - src.core.config - INFO - Configuration loaded from config/generation_params.yaml
+2025-09-09 06:37:15,109 - __main__ - INFO - === Stage 1: Vectorized Patient Generation ===
+2025-09-09 06:37:15,109 - src.vectorized.patient_generator - INFO - Starting vectorized patient generation: 1,000 records
+2025-09-09 06:37:15,109 - src.vectorized.patient_generator - INFO - Loading reference data for vectorized generation
+2025-09-09 06:37:15,123 - src.vectorized.patient_generator - INFO - Caching probability distributions
+2025-09-09 06:37:15,136 - src.core.database - ERROR - Query execution failed: Catalog Error: Table with name nedis_er_2017_sample does not exist!
+Did you mean "nedis2017"?
+
+LINE 5:             FROM nedis_original.nedis_er_2017_sample
+                         ^
+2025-09-09 06:37:15,136 - src.core.database - ERROR - Query: 
+            SELECT pat_do_cd, pat_age_gr, pat_sex, 
+                   COUNT(*) as count,
+                   COUNT(*) * 1.0 / SUM(COUNT(*)) OVER() as probability
+            FROM nedis_original.nedis_er_2017_sample
+            GROUP BY pat_do_cd, pat_age_gr, pat_sex
+            ORDER BY pat_do_cd, pat_age_gr, pat_sex
+        
+2025-09-09 06:37:15,136 - __main__ - ERROR - Pipeline execution failed: Catalog Error: Table with name nedis_er_2017_sample does not exist!
+Did you mean "nedis2017"?
+
+LINE 5:             FROM nedis_original.nedis_er_2017_sample
+                         ^
+2025-09-09 06:37:15,137 - __main__ - ERROR - Traceback (most recent call last):
+  File "/Users/sjlee/Projects/nedis-synthetic-data/scripts/run_vectorized_pipeline.py", line 75, in run_vectorized_pipeline
+    patients_df = patient_generator.generate_all_patients(generation_config)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/vectorized/patient_generator.py", line 63, in generate_all_patients
+    self._load_reference_data()
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/vectorized/patient_generator.py", line 92, in _load_reference_data
+    self._cache_probability_distributions()
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/vectorized/patient_generator.py", line 99, in _cache_probability_distributions
+    demographic_dist = self.db.fetch_dataframe("""
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/core/database.py", line 105, in fetch_dataframe
+    result = self.execute_query(query, params)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/sjlee/Projects/nedis-synthetic-data/src/core/database.py", line 87, in execute_query
+    result = self.conn.execute(query)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+duckdb.duckdb.CatalogException: Catalog Error: Table with name nedis_er_2017_sample does not exist!
+Did you mean "nedis2017"?
+
+LINE 5:             FROM nedis_original.nedis_er_2017_sample
+                         ^
+

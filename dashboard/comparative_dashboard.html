@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEDIS 원본 vs 합성 데이터 비교 분석</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+
+        .metadata {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .metadata-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .metadata-card h3 {
+            color: #495057;
+            margin-bottom: 5px;
+        }
+
+        .metadata-card .value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .chart-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e9ecef;
+            padding-bottom: 15px;
+        }
+
+        .chart-title {
+            font-size: 1.4em;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .chart-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #0056b3;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 400px;
+            margin: 20px 0;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            border-left: 4px solid #007bff;
+        }
+
+        .stat-card h4 {
+            color: #495057;
+            margin-bottom: 8px;
+            font-size: 0.95em;
+        }
+
+        .stat-value {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 15px;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 20px;
+            font-weight: 500;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 1.2em;
+            color: #6c757d;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #f5c6cb;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .comparison-table th {
+            background: #495057;
+            color: white;
+            font-weight: 600;
+        }
+
+        .comparison-table tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+
+        .statistical-tests {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            margin-top: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .test-result {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            margin: 10px 0;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #28a745;
+        }
+
+        .test-result.significant {
+            border-left-color: #dc3545;
+        }
+
+        .significance-badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+
+        .significance-badge.yes {
+            background: #dc3545;
+            color: white;
+        }
+
+        .significance-badge.no {
+            background: #28a745;
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .chart-wrapper {
+                height: 300px;
+            }
+            
+            .header h1 {
+                font-size: 1.8em;
+            }
+            
+            .legend {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏥 NEDIS 원본 vs 합성 데이터 비교 분석</h1>
+            <p>National Emergency Department Information System - Comparative Epidemiologic Analysis</p>
+            
+            <div id="metadata" class="metadata">
+                <div class="loading">메타데이터 로딩 중...</div>
+            </div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #3498db;"></div>
+                <span>원본 데이터 (Original)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #e74c3c;"></div>
+                <span>합성 데이터 (Synthetic)</span>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <!-- 연령 분포 비교 -->
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">📊 연령 분포 비교 (비율 %)</div>
+                    <div class="chart-controls">
+                        <button class="btn btn-primary" onclick="toggleChartType('ageChart')">차트 전환</button>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="ageChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 성별 분포 비교 -->
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">👥 성별 분포 비교 (비율 %)</div>
+                    <div class="chart-controls">
+                        <button class="btn btn-primary" onclick="toggleChartType('sexChart')">차트 전환</button>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="sexChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 지역 분포 비교 -->
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">🗺️ 지역 분포 비교 (비율 %)</div>
+                    <div class="chart-controls">
+                        <button class="btn btn-primary" onclick="toggleChartType('regionChart')">차트 전환</button>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="regionChart"></canvas>
+                </div>
+            </div>
+
+            <!-- KTAS 분포 비교 -->
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">🚑 KTAS 중증도 분포 비교 (비율 %)</div>
+                    <div class="chart-controls">
+                        <button class="btn btn-primary" onclick="toggleChartType('ktasChart')">차트 전환</button>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="ktasChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 월별 패턴 비교 -->
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">📅 월별 방문 패턴 비교 (비율 %)</div>
+                    <div class="chart-controls">
+                        <button class="btn btn-primary" onclick="toggleChartType('monthlyChart')">차트 전환</button>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="monthlyChart"></canvas>
+                </div>
+            </div>
+
+            <!-- 요일별 패턴 비교 -->
+            <div class="chart-container">
+                <div class="chart-header">
+                    <div class="chart-title">📆 요일별 방문 패턴 비교 (비율 %)</div>
+                    <div class="chart-controls">
+                        <button class="btn btn-primary" onclick="toggleChartType('weekdayChart')">차트 전환</button>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="weekdayChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- 통계적 검정 결과 -->
+        <div class="statistical-tests">
+            <h2>📈 통계적 검정 결과</h2>
+            <div id="statisticalTests">
+                <div class="loading">통계적 검정 결과 로딩 중...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let analysisData = null;
+        let chartInstances = {};
+        let chartTypes = {}; // track current chart type for each chart
+
+        // 색상 설정
+        const colors = {
+            original: {
+                background: 'rgba(52, 152, 219, 0.8)',
+                border: 'rgba(52, 152, 219, 1)',
+                point: 'rgba(52, 152, 219, 1)'
+            },
+            synthetic: {
+                background: 'rgba(231, 76, 60, 0.8)',
+                border: 'rgba(231, 76, 60, 1)',
+                point: 'rgba(231, 76, 60, 1)'
+            }
+        };
+
+        async function loadData() {
+            try {
+                console.log('데이터 로딩 시작...');
+                const response = await fetch('comparative_analysis.json');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const text = await response.text();
+                console.log(`응답 크기: ${(text.length / 1024).toFixed(2)} KB`);
+                
+                // 비동기로 JSON 파싱
+                analysisData = await new Promise((resolve, reject) => {
+                    setTimeout(() => {
+                        try {
+                            const data = JSON.parse(text);
+                            resolve(data);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    }, 10);
+                });
+
+                console.log('데이터 로딩 완료:', analysisData);
+                
+                // 데이터 검증
+                if (!analysisData || typeof analysisData !== 'object') {
+                    throw new Error('Invalid data format');
+                }
+
+                // 메타데이터 렌더링
+                renderMetadata();
+                
+                // 차트 렌더링
+                renderCharts();
+                
+                // 통계적 검정 결과 렌더링
+                renderStatisticalTests();
+
+            } catch (error) {
+                console.error('데이터 로딩 실패:', error);
+                document.getElementById('metadata').innerHTML = `
+                    <div class="error">
+                        <h3>데이터 로딩 오류</h3>
+                        <p>비교 분석 데이터를 불러올 수 없습니다: ${error.message}</p>
+                        <button class="btn btn-primary" onclick="location.reload()">다시 시도</button>
+                    </div>
+                `;
+            }
+        }
+
+        function renderMetadata() {
+            const metadata = analysisData?.metadata || {};
+            const metadataEl = document.getElementById('metadata');
+            
+            let warningHtml = '';
+            
+            // Date coverage warning
+            if (metadata.date_coverage_warning) {
+                warningHtml = `
+                    <div class="metadata-card" style="border-left: 4px solid #dc3545; background: #f8d7da;">
+                        <h3>⚠️ 데이터 커버리지 제한</h3>
+                        <div style="font-size: 0.9em; color: #721c24;">
+                            <strong>원본:</strong> ${metadata.original_date_range?.unique_dates || 0}일<br>
+                            <strong>합성:</strong> ${metadata.synthetic_date_range?.unique_dates || 0}일<br>
+                            <small>합성 데이터가 ${metadata.synthetic_date_range?.min_date || 'N/A'} 한 날짜만 포함</small>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            metadataEl.innerHTML = `
+                <div class="metadata-card">
+                    <h3>분석 일시</h3>
+                    <div class="value">${new Date(metadata.analysis_date || '').toLocaleString('ko-KR') || 'N/A'}</div>
+                </div>
+                <div class="metadata-card">
+                    <h3>원본 레코드</h3>
+                    <div class="value">${(metadata.original_record_count || 0).toLocaleString()}</div>
+                    <div style="font-size: 0.8em; color: #666;">
+                        ${metadata.original_date_range?.min_date || ''} ~ ${metadata.original_date_range?.max_date || ''}
+                    </div>
+                </div>
+                <div class="metadata-card">
+                    <h3>합성 레코드</h3>
+                    <div class="value">${(metadata.synthetic_record_count || 0).toLocaleString()}</div>
+                    <div style="font-size: 0.8em; color: #666;">
+                        ${metadata.synthetic_date_range?.min_date || ''} ~ ${metadata.synthetic_date_range?.max_date || ''}
+                    </div>
+                </div>
+                <div class="metadata-card">
+                    <h3>샘플링 비율</h3>
+                    <div class="value">${metadata.original_record_count ? 
+                        (metadata.synthetic_record_count / metadata.original_record_count * 100).toFixed(3) + '%' : 'N/A'}</div>
+                </div>
+                ${warningHtml}
+            `;
+        }
+
+        function renderCharts() {
+            const demographics = analysisData?.demographics || {};
+            const clinical = analysisData?.clinical_patterns || {};
+            const temporal = analysisData?.temporal_patterns || {};
+
+            // 연령 분포 차트
+            renderComparisonChart('ageChart', '연령군', 
+                demographics.original?.age_distribution || [],
+                demographics.synthetic?.age_distribution || [],
+                'age_group');
+
+            // 성별 분포 차트
+            renderComparisonChart('sexChart', '성별',
+                demographics.original?.sex_distribution || [],
+                demographics.synthetic?.sex_distribution || [],
+                'sex');
+
+            // 지역 분포 차트
+            renderComparisonChart('regionChart', '지역',
+                demographics.original?.region_distribution || [],
+                demographics.synthetic?.region_distribution || [],
+                'region_code');
+
+            // KTAS 분포 차트
+            renderComparisonChart('ktasChart', 'KTAS',
+                clinical.original?.ktas_distribution || [],
+                clinical.synthetic?.ktas_distribution || [],
+                'ktas_level');
+
+            // 월별 패턴 차트
+            renderComparisonChart('monthlyChart', '월',
+                temporal.original?.monthly_distribution || [],
+                temporal.synthetic?.monthly_distribution || [],
+                'month');
+
+            // 요일별 패턴 차트
+            renderComparisonChart('weekdayChart', '요일',
+                temporal.original?.weekday_distribution || [],
+                temporal.synthetic?.weekday_distribution || [],
+                'weekday_name');
+        }
+
+        function renderComparisonChart(canvasId, label, originalData, syntheticData, keyField) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            
+            // 데이터 정리 - 비율(percentage) 사용
+            const labels = [];
+            const originalPercentages = [];
+            const syntheticPercentages = [];
+            
+            // 원본 데이터에서 라벨 추출 - percentage 필드 사용
+            const originalMap = new Map(originalData.map(item => [item[keyField], item.percentage || 0]));
+            const syntheticMap = new Map(syntheticData.map(item => [item[keyField], item.percentage || 0]));
+            
+            // 모든 키 수집
+            const allKeys = new Set([...originalMap.keys(), ...syntheticMap.keys()]);
+            
+            // 상위 10개 항목만 선택 (원본 데이터 기준)
+            const sortedKeys = Array.from(allKeys)
+                .sort((a, b) => (originalMap.get(b) || 0) - (originalMap.get(a) || 0))
+                .slice(0, 10);
+                
+            sortedKeys.forEach(key => {
+                labels.push(key);
+                originalPercentages.push(originalMap.get(key) || 0);
+                syntheticPercentages.push(syntheticMap.get(key) || 0);
+            });
+
+            // 차트 생성
+            if (chartInstances[canvasId]) {
+                chartInstances[canvasId].destroy();
+            }
+
+            chartTypes[canvasId] = 'bar'; // 초기 차트 타입
+
+            chartInstances[canvasId] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '원본 데이터 (%)',
+                            data: originalPercentages,
+                            backgroundColor: colors.original.background,
+                            borderColor: colors.original.border,
+                            borderWidth: 2
+                        },
+                        {
+                            label: '합성 데이터 (%)',
+                            data: syntheticPercentages,
+                            backgroundColor: colors.synthetic.background,
+                            borderColor: colors.synthetic.border,
+                            borderWidth: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        title: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + '%';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: Math.max(...originalPercentages, ...syntheticPercentages) * 1.1,
+                            grid: {
+                                color: 'rgba(0,0,0,0.1)'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toFixed(1) + '%';
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: '비율 (%)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    }
+                }
+            });
+        }
+
+        function toggleChartType(chartId) {
+            if (!chartInstances[chartId]) return;
+            
+            const currentType = chartTypes[chartId] || 'bar';
+            const newType = currentType === 'bar' ? 'line' : 'bar';
+            
+            chartTypes[chartId] = newType;
+            chartInstances[chartId].config.type = newType;
+            
+            // line 차트의 경우 fill 속성 조정
+            if (newType === 'line') {
+                chartInstances[chartId].data.datasets.forEach(dataset => {
+                    dataset.fill = false;
+                    dataset.tension = 0.4;
+                });
+            }
+            
+            chartInstances[chartId].update();
+        }
+
+        function renderStatisticalTests() {
+            const tests = analysisData?.statistical_tests || {};
+            const testsEl = document.getElementById('statisticalTests');
+            
+            if (Object.keys(tests).length === 0) {
+                testsEl.innerHTML = '<div class="loading">통계적 검정 결과가 없습니다.</div>';
+                return;
+            }
+
+            let html = '';
+            
+            for (const [testName, result] of Object.entries(tests)) {
+                const testDisplayName = {
+                    'age_chi2': '연령 분포 카이제곱 검정',
+                    'sex_chi2': '성별 분포 카이제곱 검정',
+                    'region_chi2': '지역 분포 카이제곱 검정',
+                    'ktas_chi2': 'KTAS 분포 카이제곱 검정'
+                }[testName] || testName;
+
+                const isSignificant = result.significant;
+                const pValue = result.p_value?.toFixed(6) || 'N/A';
+                const statistic = result.statistic?.toFixed(4) || 'N/A';
+
+                html += `
+                    <div class="test-result ${isSignificant ? 'significant' : ''}">
+                        <div>
+                            <h4>${testDisplayName}</h4>
+                            <p>통계량: ${statistic}, p-value: ${pValue}</p>
+                        </div>
+                        <div class="significance-badge ${isSignificant ? 'yes' : 'no'}">
+                            ${isSignificant ? '유의미' : '유의미하지 않음'}
+                        </div>
+                    </div>
+                `;
+            }
+
+            testsEl.innerHTML = html;
+        }
+
+        // 페이지 로드 시 데이터 로딩 시작
+        document.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>
