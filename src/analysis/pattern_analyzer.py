@@ -288,11 +288,11 @@ class PatternAnalyzer:
         # 소분류 (4자리 지역코드) + 병원유형별 KTAS 분포
         detailed_query = """
             SELECT 
-                h.pat_do_cd as region_code,
-                h.emorg_cd as hospital_code,
+                n.pat_do_cd as region_code,
+                n.emorg_cd as hospital_code,
                 CASE 
-                    WHEN h.capacity_beds >= 300 THEN 'large'
-                    WHEN h.capacity_beds >= 100 THEN 'medium' 
+                    WHEN h.daily_capacity_mean >= 100 THEN 'large'
+                    WHEN h.daily_capacity_mean >= 50 THEN 'medium' 
                     ELSE 'small'
                 END as hospital_type,
                 n.ktas_fstu,

@@ -50,6 +50,14 @@ class VectorizedPatientGenerator:
         self._dynamic_patterns = None
         self._hospital_data = None
         
+        # 임시 기본 분포 (동적 분석 실패시 폴백)
+        self._cached_distributions = {
+            'visit_method': {'1': 0.4, '2': 0.3, '3': 0.2, '4': 0.1},
+            'chief_complaint': {'01': 0.15, '02': 0.12, '03': 0.08, '04': 0.10, '05': 0.12, '06': 0.08, '07': 0.35},
+            'department': {'01': 0.25, '02': 0.20, '03': 0.15, '04': 0.15, '05': 0.10, '06': 0.15},
+            'treatment_result': {'1': 0.7, '2': 0.1, '3': 0.1, '4': 0.05, '5': 0.05}
+        }
+        
     def generate_all_patients(self, gen_config: PatientGenerationConfig) -> pd.DataFrame:
         """
         전체 환자 벡터화 생성

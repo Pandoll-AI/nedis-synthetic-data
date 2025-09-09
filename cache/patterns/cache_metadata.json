@@ -1,0 +1,53 @@
+{
+  "cache_entries": {
+    "hospital_allocation_9bd52aac85366befbb409ce4ea9bb414": {
+      "analysis_type": "hospital_allocation",
+      "data_hash": "9bd52aac85366befbb409ce4ea9bb414",
+      "created_at": "2025-09-09T09:34:07.234025",
+      "file_path": "cache/patterns/hospital_allocation_9bd52aac85366befbb409ce4ea9bb414.pkl"
+    },
+    "regional_patterns_9bd52aac85366befbb409ce4ea9bb414": {
+      "analysis_type": "regional_patterns",
+      "data_hash": "9bd52aac85366befbb409ce4ea9bb414",
+      "created_at": "2025-09-09T09:34:07.247437",
+      "file_path": "cache/patterns/regional_patterns_9bd52aac85366befbb409ce4ea9bb414.pkl"
+    },
+    "demographic_patterns_9bd52aac85366befbb409ce4ea9bb414": {
+      "analysis_type": "demographic_patterns",
+      "data_hash": "9bd52aac85366befbb409ce4ea9bb414",
+      "created_at": "2025-09-09T09:34:07.293961",
+      "file_path": "cache/patterns/demographic_patterns_9bd52aac85366befbb409ce4ea9bb414.pkl"
+    },
+    "temporal_patterns_9bd52aac85366befbb409ce4ea9bb414": {
+      "analysis_type": "temporal_patterns",
+      "data_hash": "9bd52aac85366befbb409ce4ea9bb414",
+      "created_at": "2025-09-09T09:34:07.312650",
+      "file_path": "cache/patterns/temporal_patterns_9bd52aac85366befbb409ce4ea9bb414.pkl"
+    },
+    "hospital_allocation_9949a06b7dd95b8f02c78afe9c33d763": {
+      "analysis_type": "hospital_allocation",
+      "data_hash": "9949a06b7dd95b8f02c78afe9c33d763",
+      "created_at": "2025-09-09T09:34:54.073985",
+      "file_path": "cache/patterns/hospital_allocation_9949a06b7dd95b8f02c78afe9c33d763.pkl"
+    },
+    "regional_patterns_9949a06b7dd95b8f02c78afe9c33d763": {
+      "analysis_type": "regional_patterns",
+      "data_hash": "9949a06b7dd95b8f02c78afe9c33d763",
+      "created_at": "2025-09-09T09:34:54.087053",
+      "file_path": "cache/patterns/regional_patterns_9949a06b7dd95b8f02c78afe9c33d763.pkl"
+    },
+    "demographic_patterns_9949a06b7dd95b8f02c78afe9c33d763": {
+      "analysis_type": "demographic_patterns",
+      "data_hash": "9949a06b7dd95b8f02c78afe9c33d763",
+      "created_at": "2025-09-09T09:34:54.134763",
+      "file_path": "cache/patterns/demographic_patterns_9949a06b7dd95b8f02c78afe9c33d763.pkl"
+    },
+    "temporal_patterns_9949a06b7dd95b8f02c78afe9c33d763": {
+      "analysis_type": "temporal_patterns",
+      "data_hash": "9949a06b7dd95b8f02c78afe9c33d763",
+      "created_at": "2025-09-09T09:34:54.153011",
+      "file_path": "cache/patterns/temporal_patterns_9949a06b7dd95b8f02c78afe9c33d763.pkl"
+    }
+  },
+  "last_updated": "2025-09-09T09:34:54.153019"
+}
