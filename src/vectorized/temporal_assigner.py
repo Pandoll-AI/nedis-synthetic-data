@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from ..core.database import DatabaseManager
 from ..core.config import ConfigManager
+from ..analysis.pattern_analyzer import PatternAnalyzer, PatternAnalysisConfig
 
 
 @dataclass
@@ -41,9 +42,13 @@ class TemporalPatternAssigner:
         self.config = config
         self.logger = logging.getLogger(__name__)
         
-        # 시간 패턴 캐시
-        self._daily_volumes_cache = {}
-        self._hourly_patterns_cache = {}
+        # 패턴 분석기 초기화
+        self.pattern_analyzer = PatternAnalyzer(
+            db_manager, config, PatternAnalysisConfig()
+        )
+        
+        # 동적 시간 패턴 데이터
+        self._temporal_patterns = None
         self._holiday_calendar = None
         
     def assign_temporal_patterns(self, patients_df: pd.DataFrame, 
@@ -80,59 +85,57 @@ class TemporalPatternAssigner:
         return result_df
     
     def _load_temporal_patterns(self, year: int):
-        """시간 패턴 데이터 로드 및 캐싱"""
-        self.logger.info(f"Loading temporal patterns for year {year}")
+        """동적 시간 패턴 로드"""
+        self.logger.info(f"Loading dynamic temporal patterns for year {year}")
         
-        # 원본 데이터의 일별 패턴 분석
-        if year not in self._daily_volumes_cache:
-            original_daily_pattern = self.db.fetch_dataframe(f"""
-                SELECT 
-                    vst_dt,
-                    EXTRACT(DOW FROM STRPTIME(vst_dt, '%Y%m%d')) as day_of_week,
-                    EXTRACT(MONTH FROM STRPTIME(vst_dt, '%Y%m%d')) as month,
-                    COUNT(*) as daily_count
-                FROM nedis_original.nedis2017
-                GROUP BY vst_dt
-                ORDER BY vst_dt
-            """)
-            self._daily_volumes_cache[year] = original_daily_pattern
-        
-        # 시간별 패턴 분석
-        if year not in self._hourly_patterns_cache:
-            hourly_pattern = self.db.fetch_dataframe(f"""
-                SELECT 
-                    EXTRACT(DOW FROM STRPTIME(vst_dt, '%Y%m%d')) as day_of_week,
-                    EXTRACT(HOUR FROM STRPTIME(vst_tm, '%H%M')) as hour,
-                    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY EXTRACT(DOW FROM STRPTIME(vst_dt, '%Y%m%d'))) as probability
-                FROM nedis_original.nedis2017
-                WHERE vst_tm IS NOT NULL AND vst_tm != ''
-                GROUP BY day_of_week, hour
-                ORDER BY day_of_week, hour
-            """)
-            self._hourly_patterns_cache[year] = hourly_pattern
+        # 동적 패턴 분석 수행 (캐시 사용)
+        if self._temporal_patterns is None:
+            self._temporal_patterns = self.pattern_analyzer.analyze_all_patterns()
         
         # 공휴일 달력 로드
         if self._holiday_calendar is None:
             self._holiday_calendar = self._get_korean_holidays(year)
     
     def _calculate_daily_volumes(self, temporal_config: TemporalConfig) -> Dict[str, int]:
-        """NHPP 기반 일별 볼륨 계산"""
-        self.logger.info("Calculating daily volumes using NHPP model")
+        """동적 패턴을 사용한 일별 볼륨 계산"""
+        self.logger.info("Calculating daily volumes using dynamic temporal patterns")
         
         year = temporal_config.year
-        original_pattern = self._daily_volumes_cache[year]
         
-        # 기본 통계 계산
-        total_original_count = original_pattern['daily_count'].sum()
-        mean_daily_count = original_pattern['daily_count'].mean()
+        # 동적 패턴에서 시간 패턴 추출
+        temporal_data = self._temporal_patterns.get('temporal_patterns', {})
         
-        # 요일별 패턴 계산
-        weekday_pattern = original_pattern.groupby('day_of_week')['daily_count'].mean()
-        weekday_multipliers = weekday_pattern / weekday_pattern.mean()
+        # 요일별 패턴
+        weekday_pattern = temporal_data.get('weekday_pattern', {})
+        weekday_multipliers = {}
+        if weekday_pattern:
+            total_prob = sum(data['probability'] for data in weekday_pattern.values())
+            for day, data in weekday_pattern.items():
+                weekday_multipliers[int(day)] = data['probability'] / (total_prob / 7.0)
+        else:
+            # 기본 요일별 가중치 (균등 분포)
+            weekday_multipliers = {i: 1.0 for i in range(7)}
         
-        # 월별 패턴 계산 (계절성)
-        monthly_pattern = original_pattern.groupby('month')['daily_count'].mean()
-        monthly_multipliers = monthly_pattern / monthly_pattern.mean()
+        # 월별 패턴
+        monthly_pattern = temporal_data.get('monthly_pattern', {})
+        monthly_multipliers = {}
+        if monthly_pattern:
+            total_prob = sum(data['probability'] for data in monthly_pattern.values())
+            for month, data in monthly_pattern.items():
+                monthly_multipliers[int(month)] = data['probability'] / (total_prob / 12.0)
+        else:
+            # 기본 월별 가중치 (균등 분포)
+            monthly_multipliers = {i: 1.0 for i in range(1, 13)}
+        
+        # 기본 통계 계산 (원본 데이터에서)
+        original_stats = self.db.fetch_dataframe("""
+            SELECT COUNT(*) as total_count,
+                   COUNT(DISTINCT vst_dt) as unique_dates
+            FROM nedis_original.nedis2017
+            WHERE vst_dt IS NOT NULL
+        """)
+        
+        mean_daily_count = original_stats['total_count'].iloc[0] / original_stats['unique_dates'].iloc[0]
         
         # 365일 볼륨 생성
         daily_volumes = {}
@@ -237,30 +240,34 @@ class TemporalPatternAssigner:
     
     def _assign_times_vectorized(self, patients_df: pd.DataFrame, 
                                temporal_config: TemporalConfig) -> pd.DataFrame:
-        """벡터화된 시간 할당"""
-        self.logger.info("Vectorized time assignment")
+        """동적 패턴을 사용한 벡터화된 시간 할당"""
+        self.logger.info("Vectorized time assignment using dynamic patterns")
         
         result_df = patients_df.copy()
-        hourly_patterns = self._hourly_patterns_cache[temporal_config.year]
+        
+        # 동적 패턴에서 시간별 분포 추출
+        temporal_data = self._temporal_patterns.get('temporal_patterns', {})
+        hourly_pattern = temporal_data.get('hourly_pattern', {})
         
         # 날짜별로 그룹화하여 처리
         time_assignments = np.empty(len(result_df), dtype='object')
         
         for date_str, group_indices in result_df.groupby('vst_dt').groups.items():
-            # 날짜의 요일 계산
-            date_obj = datetime.strptime(date_str, '%Y%m%d')
-            dow_pg = (date_obj.weekday() + 1) % 7  # PostgreSQL DOW 형식
-            
-            # 해당 요일의 시간별 분포
-            day_hourly_dist = hourly_patterns[hourly_patterns['day_of_week'] == dow_pg]
-            
-            if len(day_hourly_dist) > 0:
-                hours = day_hourly_dist['hour'].values
-                probs = day_hourly_dist['probability'].values
-                probs = probs / probs.sum()  # 정규화
+            if hourly_pattern:
+                # 동적 패턴 사용
+                hours = list(hourly_pattern.keys())
+                probabilities = [hourly_pattern[h]['probability'] for h in hours]
+                
+                # 확률 정규화
+                probabilities = np.array(probabilities, dtype=float)
+                probabilities = probabilities / probabilities.sum()
                 
                 # 시간 할당
-                chosen_hours = np.random.choice(hours, size=len(group_indices), p=probs)
+                chosen_hours = np.random.choice(
+                    [int(h) for h in hours], 
+                    size=len(group_indices), 
+                    p=probabilities
+                )
                 
                 # 분과 초는 랜덤하게
                 chosen_minutes = np.random.randint(0, 60, size=len(group_indices))

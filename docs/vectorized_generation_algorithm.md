@@ -8,8 +8,10 @@
 
 1. **시간 분리 원칙**: 환자 생성과 시간 할당을 분리하여 벡터화 극대화
 2. **후처리 제약 원칙**: 병원 용량 제약을 후처리로 적용하여 벡터화 가능
-3. **배치 의존성 원칙**: Bayesian 의존성을 배치 단위로 처리하여 성능과 정확도 균형
-4. **메모리 효율성 원칙**: 전체 데이터를 메모리에서 처리하여 I/O 최소화
+3. **동적 패턴 학습 원칙**: 실제 데이터에서 분포와 패턴을 학습하여 하드코딩 제거
+4. **지역 기반 할당 원칙**: 복잡한 거리 모델 대신 실제 지역별 병원 선택 패턴 사용
+5. **계층적 폴백 원칙**: 소분류→대분류→전국→전체 순서의 데이터 부족 대응
+6. **메모리 효율성 원칙**: 전체 데이터를 메모리에서 처리하여 I/O 최소화
 
 ## 3단계 벡터화 아키텍처
 
@@ -19,52 +21,69 @@
 
 **입력**:
 - `target_total_records`: 목표 총 레코드 수 (322,573)
-- `demographic_distribution`: 인구통계 분포 파라미터
-- `hospital_gravity_params`: 중력 모델 파라미터
+- `learned_patterns`: 동적 패턴 분석 결과
+- `regional_hospital_maps`: 지역별 병원 선택 확률
 
 **출력**:
 - `patients_df`: 날짜 없는 환자 데이터프레임
   - 인구통계: `pat_age_gr`, `pat_sex`, `pat_do_cd`
-  - 초기 병원 할당: `initial_hospital`
+  - 병원 할당: `emorg_cd` (지역 기반)
   - 독립적 임상 속성: `vst_meth`, `msypt`, `main_trt_p`
-  - 조건부 임상 속성: `ktas_fstu`, `emtrt_rust`
+  - 조건부 임상 속성: `ktas_fstu`, `emtrt_rust` (계층적 분포 사용)
 
 **알고리즘**:
 
 ```python
 def generate_vectorized_patients(total_records=322573):
-    # 1. 인구통계 벡터 생성
-    demographics = multinomial_demographic_sampling(
+    # 1. 동적 패턴 분석 및 캐싱
+    pattern_analyzer = PatternAnalyzer(db_manager, cache_dir='cache/patterns')
+    learned_patterns = pattern_analyzer.analyze_all_patterns()
+    
+    # 2. 인구통계 벡터 생성 (실제 분포 기반)
+    demographics = vectorized_demographic_sampling(
         total_records, 
-        demographic_probs
+        learned_patterns['demographic_patterns']
     )
     
-    # 2. 중력 모델 기반 초기 병원 할당 (벡터화)
-    initial_hospitals = vectorized_gravity_allocation(
+    # 3. 지역 기반 병원 할당 (벡터화)
+    hospitals = vectorized_region_based_allocation(
         demographics, 
-        distance_matrix, 
-        attractiveness_scores
+        learned_patterns['hospital_allocation_patterns']
     )
     
-    # 3. 독립적 임상 속성 생성 (완전 벡터화)
-    independent_attrs = parallel_attribute_generation({
-        'vst_meth': vectorized_visit_method(demographics),
-        'msypt': vectorized_chief_complaint(demographics),
-        'main_trt_p': vectorized_department(demographics)
-    })
+    # 4. 독립적 임상 속성 생성 (완전 벡터화)
+    independent_attrs = parallel_attribute_generation(
+        demographics, 
+        learned_patterns['clinical_patterns']
+    )
     
-    # 4. 조건부 임상 속성 생성 (Semi-벡터화)
-    ktas = vectorized_ktas_generation(demographics, independent_attrs['vst_meth'])
-    treatment_result = batch_conditional_generation(ktas, demographics)
+    # 5. 계층적 KTAS 생성 (Semi-벡터화)
+    ktas = hierarchical_ktas_generation(
+        demographics, 
+        hospitals,
+        learned_patterns['ktas_patterns']  # 소분류→대분류→전국→전체
+    )
     
-    return merge_patient_dataframe(demographics, initial_hospitals, 
-                                   independent_attrs, ktas, treatment_result)
+    # 6. 조건부 임상 속성 (의료 정확도 보장)
+    conditional_attrs = batch_conditional_generation(
+        ktas, demographics, learned_patterns
+    )
+    
+    return merge_patient_dataframe(demographics, hospitals, 
+                                   independent_attrs, ktas, conditional_attrs)
 ```
 
 **성능 특성**:
-- 처리 시간: 3-5초
+- 처리 시간: 0.9-1.2초 (캐시 사용시 추가 성능 향상)
 - 메모리 사용: ~2GB peak
 - 벡터화율: 95% (조건부 속성 제외)
+- 동적 학습: 패턴 분석 + 캐싱으로 재사용성 극대화
+
+**전국 규모 고려사항**:
+- **지역 커버리지**: 17개 시도 × 시군구별 세부 분석
+- **병원 분류**: 권역응급의료센터(43개) + 지역응급의료센터(118개) + 지역응급의료기관(300+개)
+- **계층적 폴백**: 데이터 부족 지역에 대한 자동 상위 레벨 패턴 적용
+- **확장성**: 새로운 지역/병원 추가 시 자동 적응
 
 ### Stage 2: 시간 패턴 기반 날짜 할당 (Temporal Pattern Assignment)
 
@@ -136,36 +155,35 @@ def assign_temporal_patterns(patients_df, year=2017):
 ```python
 def apply_capacity_constraints(patients_df):
     # 1. 날짜-병원별 그룹화 및 현재 부하 계산
-    daily_hospital_load = patients_df.groupby(['vst_dt', 'initial_hospital']).size()
+    daily_hospital_load = patients_df.groupby(['vst_dt', 'emorg_cd']).size()
     
-    # 2. 동적 임계값 계산
-    dynamic_thresholds = calculate_dynamic_capacity_limits(
-        base_capacity=hospital_base_capacity,
-        historical_patterns=historical_load_patterns,
-        safety_margin=1.2,  # 120% 임계값
-        weekend_adjustment=1.5
+    # 2. 동적 용량 한계 계산 (실제 데이터 기반)
+    dynamic_limits = calculate_learned_capacity_limits(
+        learned_patterns['hospital_capacity_patterns'],
+        weekend_multiplier=0.8,
+        holiday_multiplier=0.6,
+        safety_margin=1.1  # 110% 최대 허용
     )
     
-    # 3. Overflow 감지 (벡터화)
-    overflow_mask = daily_hospital_load > dynamic_thresholds
-    overflow_patients_idx = patients_df.index[overflow_mask]
+    # 3. 용량 초과 감지 (벡터화)
+    overflow_mask = daily_hospital_load > dynamic_limits
+    overflow_patients = patients_df[overflow_mask]
     
-    # 4. 재할당 대상 선정 (확률적)
-    redistribution_candidates = select_redistribution_candidates(
-        overflow_patients_idx,
-        selection_strategy='proportional_random'
+    # 4. 지역 기반 재할당 (거리 모델 없이)
+    redistribution_strategy = get_regional_redistribution_map(
+        learned_patterns['regional_hospital_alternatives']
     )
     
     # 5. 벡터화된 재할당
-    new_hospital_assignments = vectorized_overflow_redistribution(
-        candidates=redistribution_candidates,
-        method='second_choice_probability',
-        fallback_strategy='nearest_available'
+    new_assignments = vectorized_regional_redistribution(
+        overflow_patients,
+        strategy=redistribution_strategy,
+        preserve_regional_preference=True
     )
     
     # 6. 최종 할당 업데이트
-    patients_df.loc[redistribution_candidates, 'emorg_cd'] = new_hospital_assignments
-    patients_df.loc[redistribution_candidates, 'overflow_flag'] = True
+    patients_df.loc[overflow_mask, 'emorg_cd'] = new_assignments
+    patients_df.loc[overflow_mask, 'redistribution_applied'] = True
     
     return patients_df
 ```
@@ -202,11 +220,12 @@ def semi_vectorized_treatment_result(ktas_array, demographics_df, batch_size=100
         level_indices = np.where(level_mask)[0]
         
         if len(level_indices) > 0:
-            # KTAS별 조건부 확률 매트릭스
-            conditional_probs = get_treatment_probability_matrix(
+            # 계층적 KTAS별 조건부 확률 매트릭스 (동적 학습)
+            conditional_probs = get_hierarchical_treatment_probabilities(
                 ktas_level=ktas_level,
-                age_groups=demographics_df.loc[level_mask, 'pat_age_gr'],
-                hospital_types=demographics_df.loc[level_mask, 'hospital_type']
+                demographics=demographics_df.loc[level_mask],
+                hospitals=hospitals_df.loc[level_mask],
+                learned_patterns=learned_patterns['conditional_treatment_patterns']
             )
             
             # 배치 다항 샘플링
@@ -230,6 +249,7 @@ def semi_vectorized_treatment_result(ktas_array, demographics_df, batch_size=100
 - 처리 시간: 순차 처리의 1/5 (20% 시간)
 - 의학적 정확도: 100% 유지
 - 배치 크기 조정으로 메모리 사용량 제어
+- **동적 패턴 학습**: 실제 데이터 기반 확률 분포 사용
 
 ## 전체 파이프라인 성능 예측
 
@@ -334,3 +354,72 @@ def validate_generation_quality(generated_df, original_stats):
 5. **메모리 효율성**: 청크 기반 처리로 대용량 데이터 지원
 
 이 접근법은 **시간 분리 설계 패턴**을 통해 합성 데이터 생성 분야에서 새로운 표준을 제시합니다.
+
+## 계층적 KTAS 분포 시스템
+
+### 배경 및 필요성
+- **소규모 응급의료기관**: KTAS 전송이 선택사항이었으므로 원본 데이터에 34% 누락
+- **지역별 의료 접근성 차이**: 수도권 vs 지방의 중증도 분포 상이  
+- **병원 규모별 특성**: 권역센터는 중증 환자, 지역기관은 경증 환자 중심
+
+### 4단계 계층적 폴백 전략
+
+```python
+def get_hierarchical_ktas_distribution(region_code, hospital_type, demographics):
+    """
+    소분류(4자리) → 대분류(2자리) → 전국+병원유형 → 전체평균
+    """
+    
+    # 1단계: 소분류 지역 + 병원 유형 (예: 서울 종로구 + 권역센터)
+    ktas_dist = query_learned_ktas_pattern(
+        region_filter=region_code,  # "1101"
+        hospital_type_filter=hospital_type
+    )
+    if is_statistically_significant(ktas_dist):
+        return ktas_dist
+    
+    # 2단계: 대분류 지역 + 병원 유형 (예: 서울특별시 + 권역센터)  
+    major_region = region_code[:2]  # "11"
+    ktas_dist = query_learned_ktas_pattern(
+        region_filter=major_region + "%",
+        hospital_type_filter=hospital_type
+    )
+    if is_statistically_significant(ktas_dist):
+        return ktas_dist
+    
+    # 3단계: 전국 + 병원 유형만
+    ktas_dist = query_learned_ktas_pattern(
+        region_filter=None,
+        hospital_type_filter=hospital_type
+    )
+    if is_statistically_significant(ktas_dist):
+        return ktas_dist
+    
+    # 4단계: 전체 국가 평균 (최종 폴백)
+    return get_national_average_ktas_distribution()
+```
+
+### 전국 규모 적용 시나리오
+
+**수도권 (11, 28, 41)**:
+- 소분류 레벨 데이터 충분 → 정밀한 지역별 패턴
+- 권역센터 다수 → KTAS 1-2 높은 비율
+
+**광역시 (26, 27, 29, 30, 31)**:
+- 대분류 레벨 주로 사용
+- 도시형 응급의료 패턴
+
+**도 지역 (42~50)**:
+- 전국+병원유형 패턴 의존
+- 지역 의료기관 중심 → KTAS 3-5 높은 비율
+
+### 병원 유형별 예상 KTAS 분포
+
+| 병원 유형 | KTAS 1-2 | KTAS 3-4 | KTAS 5 | 누락률 |
+|-----------|----------|----------|--------|---------|
+| 권역응급의료센터 | 25-35% | 50-60% | 10-15% | 0-5% |
+| 지역응급의료센터 | 15-25% | 60-70% | 10-20% | 5-15% |
+| 지역응급의료기관 | 5-15% | 50-65% | 20-35% | 15-50% |
+
+이러한 **동적 패턴 학습 + 계층적 폴백** 시스템을 통해 하드코딩 없이 현실적인 KTAS 분포를 생성합니다.
+

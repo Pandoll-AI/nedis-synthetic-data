@@ -2,7 +2,8 @@
 """
 벡터화 환자 생성기 (VectorizedPatientGenerator)
 
-날짜 정보 없이 전체 환자 집단을 벡터화 방식으로 생성하는 모듈입니다.
+동적 패턴 분석을 사용하여 하드코딩 없이 환자를 생성하는 모듈입니다.
+계층적 대안 및 지역 기반 병원 할당을 포함합니다.
 """
 
 import logging
@@ -13,6 +14,7 @@ from dataclasses import dataclass
 
 from ..core.database import DatabaseManager
 from ..core.config import ConfigManager
+from ..analysis.pattern_analyzer import PatternAnalyzer, PatternAnalysisConfig
 
 
 @dataclass
@@ -25,7 +27,7 @@ class PatientGenerationConfig:
 
 
 class VectorizedPatientGenerator:
-    """벡터화 환자 생성기"""
+    """동적 패턴 기반 벡터화 환자 생성기"""
     
     def __init__(self, db_manager: DatabaseManager, config: ConfigManager):
         """
@@ -39,10 +41,14 @@ class VectorizedPatientGenerator:
         self.config = config
         self.logger = logging.getLogger(__name__)
         
-        # 확률 분포 캐싱을 위한 딕셔너리
-        self._cached_distributions = {}
+        # 패턴 분석기 초기화
+        self.pattern_analyzer = PatternAnalyzer(
+            db_manager, config, PatternAnalysisConfig()
+        )
+        
+        # 동적 패턴 데이터 저장
+        self._dynamic_patterns = None
         self._hospital_data = None
-        self._distance_matrix = None
         
     def generate_all_patients(self, gen_config: PatientGenerationConfig) -> pd.DataFrame:
         """
@@ -70,91 +76,68 @@ class VectorizedPatientGenerator:
             return self._generate_patients_vectorized(gen_config.total_records)
     
     def _load_reference_data(self):
-        """참조 데이터 로드 및 캐싱"""
-        self.logger.info("Loading reference data for vectorized generation")
+        """동적 패턴 분석 및 데이터 로드"""
+        self.logger.info("Loading dynamic patterns for vectorized generation")
         
-        # 병원 데이터 로드
+        # 병원 데이터 로드 (용량 및 유형 정보 포함)
         if self._hospital_data is None:
             self._hospital_data = self.db.fetch_dataframe("""
-                SELECT emorg_cd, adr, hospname, daily_capacity_mean as capacity_beds, 
-                       attractiveness_score
+                SELECT 
+                    emorg_cd, 
+                    adr, 
+                    hospname, 
+                    daily_capacity_mean as capacity_beds,
+                    CASE 
+                        WHEN daily_capacity_mean >= 300 THEN 'large'
+                        WHEN daily_capacity_mean >= 100 THEN 'medium' 
+                        ELSE 'small'
+                    END as hospital_type,
+                    SUBSTR(adr, 1, 2) as major_region,
+                    adr as region_code
                 FROM nedis_meta.hospital_capacity
+                WHERE daily_capacity_mean IS NOT NULL
             """)
+        
+        # 동적 패턴 분석 수행
+        if self._dynamic_patterns is None:
+            self.logger.info("Performing dynamic pattern analysis")
+            self._dynamic_patterns = self.pattern_analyzer.analyze_all_patterns()
             
-        # 거리 매트릭스 로드
-        if self._distance_matrix is None:
-            self._distance_matrix = self.db.fetch_dataframe("""
-                SELECT from_do_cd, to_emorg_cd, distance_km
-                FROM nedis_meta.distance_matrix
-            """).pivot(index='from_do_cd', columns='to_emorg_cd', values='distance_km')
-        
-        # 확률 분포들 캐싱
-        self._cache_probability_distributions()
+            # 패턴 분석 결과 로깅
+            self.logger.info(f"Dynamic pattern analysis completed:")
+            for pattern_type, pattern_data in self._dynamic_patterns.items():
+                if isinstance(pattern_data, dict) and 'patterns' in pattern_data:
+                    count = len(pattern_data['patterns'])
+                    self.logger.info(f"  - {pattern_type}: {count} patterns")
+                elif pattern_type == 'metadata':
+                    self.logger.info(f"  - Analysis timestamp: {pattern_data.get('analysis_timestamp', 'N/A')}")
     
-    def _cache_probability_distributions(self):
-        """확률 분포들을 메모리에 캐싱"""
-        self.logger.info("Caching probability distributions")
+    def _get_dynamic_distribution(self, pattern_type: str) -> pd.DataFrame:
+        """동적 패턴에서 분포 데이터 추출"""
+        if self._dynamic_patterns is None:
+            raise RuntimeError("Dynamic patterns not loaded. Call _load_reference_data() first.")
         
-        # 인구통계 분포
-        demographic_dist = self.db.fetch_dataframe("""
-            SELECT pat_do_cd, pat_age_gr, pat_sex, 
-                   COUNT(*) as count,
-                   COUNT(*) * 1.0 / SUM(COUNT(*)) OVER() as probability
-            FROM nedis_original.nedis2017
-            GROUP BY pat_do_cd, pat_age_gr, pat_sex
-            ORDER BY pat_do_cd, pat_age_gr, pat_sex
-        """)
-        self._cached_distributions['demographics'] = demographic_dist
+        pattern_data = self._dynamic_patterns.get(pattern_type, {})
+        if 'patterns' not in pattern_data:
+            self.logger.warning(f"No patterns found for {pattern_type}")
+            return pd.DataFrame()
         
-        # 내원수단 분포 (연령별)
-        visit_method_dist = self.db.fetch_dataframe("""
-            SELECT pat_age_gr, vst_meth,
-                   COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_age_gr) as probability
-            FROM nedis_original.nedis2017
-            WHERE vst_meth IS NOT NULL AND vst_meth != ''
-            GROUP BY pat_age_gr, vst_meth
-        """)
-        self._cached_distributions['visit_method'] = visit_method_dist
+        # 패턴 데이터를 DataFrame 형태로 변환
+        patterns = pattern_data['patterns']
+        rows = []
         
-        # 주증상 분포 (연령,성별)
-        chief_complaint_dist = self.db.fetch_dataframe("""
-            SELECT pat_age_gr, pat_sex, msypt,
-                   COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_age_gr, pat_sex) as probability
-            FROM nedis_original.nedis2017
-            WHERE msypt IS NOT NULL AND msypt != ''
-            GROUP BY pat_age_gr, pat_sex, msypt
-        """)
-        self._cached_distributions['chief_complaint'] = chief_complaint_dist
+        if pattern_type == 'demographic_patterns':
+            for key, data in patterns.items():
+                age_sex = key.split('_')
+                if len(age_sex) == 2:
+                    rows.append({
+                        'pat_age_gr': age_sex[0],
+                        'pat_sex': age_sex[1],
+                        'count': data['count'],
+                        'probability': data['probability']
+                    })
         
-        # KTAS 분포 (연령,성별,내원수단)
-        ktas_dist = self.db.fetch_dataframe("""
-            SELECT pat_age_gr, pat_sex, vst_meth, ktas_fstu,
-                   COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_age_gr, pat_sex, vst_meth) as probability
-            FROM nedis_original.nedis2017
-            WHERE ktas_fstu IN ('1','2','3','4','5') AND vst_meth IS NOT NULL
-            GROUP BY pat_age_gr, pat_sex, vst_meth, ktas_fstu
-        """)
-        self._cached_distributions['ktas'] = ktas_dist
-        
-        # 치료결과 분포 (KTAS,연령)
-        treatment_result_dist = self.db.fetch_dataframe("""
-            SELECT ktas_fstu, pat_age_gr, emtrt_rust,
-                   COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY ktas_fstu, pat_age_gr) as probability
-            FROM nedis_original.nedis2017
-            WHERE ktas_fstu IN ('1','2','3','4','5') AND emtrt_rust IS NOT NULL
-            GROUP BY ktas_fstu, pat_age_gr, emtrt_rust
-        """)
-        self._cached_distributions['treatment_result'] = treatment_result_dist
-        
-        # 치료과 분포 (연령,성별)
-        department_dist = self.db.fetch_dataframe("""
-            SELECT pat_age_gr, pat_sex, main_trt_p,
-                   COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_age_gr, pat_sex) as probability
-            FROM nedis_original.nedis2017
-            WHERE main_trt_p IS NOT NULL AND main_trt_p != ''
-            GROUP BY pat_age_gr, pat_sex, main_trt_p
-        """)
-        self._cached_distributions['department'] = department_dist
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
     
     def _generate_patients_chunked(self, gen_config: PatientGenerationConfig) -> pd.DataFrame:
         """청크별 환자 생성 (메모리 효율적)"""
@@ -211,8 +194,23 @@ class VectorizedPatientGenerator:
         return result_df
     
     def _generate_demographics_vectorized(self, total_records: int) -> pd.DataFrame:
-        """인구통계 벡터 생성"""
-        demo_dist = self._cached_distributions['demographics']
+        """동적 패턴을 사용한 인구통계 벡터 생성"""
+        self.logger.info("Generating demographics using dynamic patterns")
+        
+        # 원본 데이터에서 직접 인구통계 분포 추출
+        demo_query = """
+            SELECT pat_do_cd, pat_age_gr, pat_sex, 
+                   COUNT(*) as count,
+                   COUNT(*) * 1.0 / SUM(COUNT(*)) OVER() as probability
+            FROM nedis_original.nedis2017
+            WHERE pat_do_cd IS NOT NULL 
+              AND pat_age_gr IS NOT NULL 
+              AND pat_sex IS NOT NULL
+            GROUP BY pat_do_cd, pat_age_gr, pat_sex
+            ORDER BY pat_do_cd, pat_age_gr, pat_sex
+        """
+        
+        demo_dist = self.db.fetch_dataframe(demo_query)
         
         # 다항분포 샘플링
         demo_counts = np.random.multinomial(
@@ -237,58 +235,128 @@ class VectorizedPatientGenerator:
         return pd.DataFrame(demographics_list)
     
     def _generate_hospital_assignments_vectorized(self, demographics_df: pd.DataFrame) -> np.ndarray:
-        """중력 모델 기반 초기 병원 할당"""
-        self.logger.info("Vectorized hospital assignment using gravity model")
+        """동적 패턴 기반 지역별 병원 할당"""
+        self.logger.info("Vectorized hospital assignment using dynamic regional patterns")
         
-        # 지역별로 그룹화하여 병원 선택 확률 계산
+        # 병원 할당 패턴 가져오기
+        hospital_patterns = self._dynamic_patterns.get('hospital_allocation', {})
+        if 'patterns' not in hospital_patterns:
+            self.logger.warning("No hospital allocation patterns found, using fallback method")
+            return self._fallback_hospital_assignment(demographics_df)
+        
+        allocation_patterns = hospital_patterns['patterns']
         hospital_assignments = np.empty(len(demographics_df), dtype='object')
         
+        # 지역별로 그룹화하여 병원 선택
         for region in demographics_df['pat_do_cd'].unique():
             region_mask = demographics_df['pat_do_cd'] == region
             region_indices = np.where(region_mask)[0]
             
             if len(region_indices) == 0:
                 continue
-                
-            # 해당 지역의 병원별 매력도 계산 (중력 모델)
-            region_hospitals = self._hospital_data.copy()
             
-            # 거리 기반 매력도 계산
-            if region in self._distance_matrix.index:
-                distances = self._distance_matrix.loc[region].dropna()
-                
-                # 중력 모델: Attractiveness = Size^alpha / Distance^beta
-                alpha = 1.0  # 규모 파라미터
-                beta = 2.0   # 거리 감쇠 파라미터
-                
-                attractiveness = {}
-                for hospital in distances.index:
-                    if hospital in region_hospitals['emorg_cd'].values:
-                        hospital_size = region_hospitals[region_hospitals['emorg_cd'] == hospital]['capacity_beds'].iloc[0]
-                        distance = distances[hospital]
-                        
-                        # 최소 거리 제한 (0으로 나누기 방지)
-                        distance = max(distance, 0.1)
-                        
-                        attractiveness[hospital] = (hospital_size ** alpha) / (distance ** beta)
+            # 지역 코드별 병원 패턴 조회
+            region_pattern = allocation_patterns.get(str(region))
+            
+            if region_pattern and 'hospitals' in region_pattern:
+                # 해당 지역의 병원 확률 분포 사용
+                hospitals = list(region_pattern['hospitals'].keys())
+                probabilities = [region_pattern['hospitals'][h]['probability'] 
+                               for h in hospitals]
                 
                 # 확률 정규화
-                total_attractiveness = sum(attractiveness.values())
-                if total_attractiveness > 0:
-                    hospital_probs = np.array([attractiveness.get(h, 0) for h in attractiveness.keys()])
-                    hospital_probs = hospital_probs / hospital_probs.sum()
-                    hospital_list = list(attractiveness.keys())
+                if sum(probabilities) > 0:
+                    probabilities = np.array(probabilities)
+                    probabilities = probabilities / probabilities.sum()
                     
                     # 벡터화 샘플링
                     chosen_hospitals = np.random.choice(
-                        hospital_list,
+                        hospitals,
                         size=len(region_indices),
-                        p=hospital_probs
+                        p=probabilities
                     )
-                    
                     hospital_assignments[region_indices] = chosen_hospitals
+                else:
+                    # 확률이 0인 경우 균등 분포
+                    chosen_hospitals = np.random.choice(
+                        hospitals,
+                        size=len(region_indices)
+                    )
+                    hospital_assignments[region_indices] = chosen_hospitals
+            else:
+                # 해당 지역 패턴이 없는 경우 계층적 대안 사용
+                major_region = str(region)[:2] if len(str(region)) >= 2 else str(region)
+                hierarchical_patterns = hospital_patterns.get('hierarchical_fallback', {})
+                
+                if major_region in hierarchical_patterns:
+                    major_pattern = hierarchical_patterns[major_region]
+                    hospitals = list(major_pattern['hospitals'].keys())
+                    probabilities = [major_pattern['hospitals'][h]['probability'] 
+                                   for h in hospitals]
+                    
+                    if sum(probabilities) > 0:
+                        probabilities = np.array(probabilities)
+                        probabilities = probabilities / probabilities.sum()
+                        
+                        chosen_hospitals = np.random.choice(
+                            hospitals,
+                            size=len(region_indices),
+                            p=probabilities
+                        )
+                        hospital_assignments[region_indices] = chosen_hospitals
+                    else:
+                        # 최종 대안: 랜덤 병원 선택
+                        hospital_assignments[region_indices] = self._assign_random_hospitals(region_indices)
+                else:
+                    # 최종 대안: 랜덤 병원 선택
+                    hospital_assignments[region_indices] = self._assign_random_hospitals(region_indices)
         
         return hospital_assignments
+    
+    def _fallback_hospital_assignment(self, demographics_df: pd.DataFrame) -> np.ndarray:
+        """대안 병원 할당 방법 (패턴이 없는 경우)"""
+        self.logger.info("Using fallback hospital assignment method")
+        
+        # 지역별로 가능한 병원 목록 생성
+        region_hospitals = {}
+        
+        for _, hospital in self._hospital_data.iterrows():
+            region = hospital['major_region']  # 2자리 지역코드 사용
+            if region not in region_hospitals:
+                region_hospitals[region] = []
+            region_hospitals[region].append(hospital['emorg_cd'])
+        
+        hospital_assignments = np.empty(len(demographics_df), dtype='object')
+        
+        for region in demographics_df['pat_do_cd'].unique():
+            region_mask = demographics_df['pat_do_cd'] == region
+            region_indices = np.where(region_mask)[0]
+            
+            # 지역에 해당하는 병원들 찾기
+            major_region = str(region)[:2] if len(str(region)) >= 2 else str(region)
+            available_hospitals = region_hospitals.get(major_region, [])
+            
+            if available_hospitals:
+                # 해당 지역 병원 중에서 랜덤 선택
+                chosen_hospitals = np.random.choice(
+                    available_hospitals,
+                    size=len(region_indices)
+                )
+                hospital_assignments[region_indices] = chosen_hospitals
+            else:
+                # 전체 병원에서 랜덤 선택
+                hospital_assignments[region_indices] = self._assign_random_hospitals(region_indices)
+        
+        return hospital_assignments
+    
+    def _assign_random_hospitals(self, indices: np.ndarray) -> np.ndarray:
+        """랜덤 병원 할당"""
+        all_hospitals = self._hospital_data['emorg_cd'].tolist()
+        if all_hospitals:
+            return np.random.choice(all_hospitals, size=len(indices))
+        else:
+            # 기본값으로 더미 병원 코드 사용
+            return np.array(['DEFAULT_HOSPITAL'] * len(indices))
     
     def _generate_independent_clinical_attributes(self, demographics_df: pd.DataFrame) -> pd.DataFrame:
         """독립적 임상 속성 생성 (완전 벡터화)"""
@@ -382,37 +450,70 @@ class VectorizedPatientGenerator:
         return results
     
     def _semi_vectorized_ktas_generation(self, combined_df: pd.DataFrame) -> np.ndarray:
-        """Semi-벡터화 KTAS 생성"""
+        """계층적 대안을 사용한 KTAS 생성"""
+        self.logger.info("Generating KTAS using hierarchical fallback patterns")
         results = np.empty(len(combined_df), dtype='object')
-        ktas_dist = self._cached_distributions['ktas']
         
-        # 조건부 그룹별로 배치 처리
-        group_cols = ['pat_age_gr', 'pat_sex', 'vst_meth']
+        # 병원 유형 정보 추가
+        combined_df = self._add_hospital_type_info(combined_df)
         
-        for group_values, group_indices in combined_df.groupby(group_cols).groups.items():
-            # 해당 조건의 KTAS 확률 분포
-            condition_df = ktas_dist.query(
-                f"pat_age_gr == '{group_values[0]}' & " +
-                f"pat_sex == '{group_values[1]}' & " +
-                f"vst_meth == '{group_values[2]}'"
+        # 지역-병원유형 조합별로 처리
+        for _, row in combined_df.iterrows():
+            idx = row.name
+            region_code = str(row['pat_do_cd'])
+            hospital_code = row['initial_hospital']
+            
+            # 병원 유형 확인
+            hospital_type = self._get_hospital_type(hospital_code)
+            
+            # 계층적 KTAS 분포 조회
+            ktas_probs = self.pattern_analyzer.get_hierarchical_ktas_distribution(
+                region_code, hospital_type
             )
             
-            if len(condition_df) > 0:
-                probs = condition_df['probability'].values
-                probs = probs / probs.sum()
+            if ktas_probs and sum(ktas_probs.values()) > 0:
+                # 동적 패턴 사용
+                ktas_levels = list(ktas_probs.keys())
+                probabilities = list(ktas_probs.values())
+                
+                # 확률 정규화
+                probabilities = np.array(probabilities)
+                probabilities = probabilities / probabilities.sum()
                 
                 chosen_ktas = np.random.choice(
-                    condition_df['ktas_fstu'].values,
-                    size=len(group_indices),
-                    p=probs
+                    ktas_levels,
+                    p=probabilities
                 )
-                
-                results[group_indices] = chosen_ktas
+                results[idx] = chosen_ktas
             else:
-                # 기본 KTAS 분포 사용
-                results[group_indices] = np.random.choice(['3', '4', '5'], len(group_indices), p=[0.3, 0.5, 0.2])
+                # 최종 대안: 기본 KTAS 분포
+                results[idx] = np.random.choice(['3', '4', '5'], p=[0.3, 0.5, 0.2])
         
         return results
+    
+    def _add_hospital_type_info(self, df: pd.DataFrame) -> pd.DataFrame:
+        """병원 유형 정보 추가"""
+        # 병원 유형 매핑 생성
+        hospital_type_map = {}
+        for _, hospital in self._hospital_data.iterrows():
+            hospital_type_map[hospital['emorg_cd']] = hospital['hospital_type']
+        
+        # DataFrame에 병원 유형 추가
+        df = df.copy()
+        df['hospital_type'] = df['initial_hospital'].map(hospital_type_map).fillna('medium')
+        
+        return df
+    
+    def _get_hospital_type(self, hospital_code: str) -> str:
+        """병원 코드로 병원 유형 조회"""
+        hospital_info = self._hospital_data[
+            self._hospital_data['emorg_cd'] == hospital_code
+        ]
+        
+        if len(hospital_info) > 0:
+            return hospital_info.iloc[0]['hospital_type']
+        else:
+            return 'medium'  # 기본값
     
     def _semi_vectorized_treatment_result_generation(self, combined_df: pd.DataFrame, 
                                                    ktas_values: np.ndarray) -> np.ndarray:
