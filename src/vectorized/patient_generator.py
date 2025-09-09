@@ -49,14 +49,8 @@ class VectorizedPatientGenerator:
         # 동적 패턴 데이터 저장
         self._dynamic_patterns = None
         self._hospital_data = None
-        
-        # 임시 기본 분포 (동적 분석 실패시 폴백)
-        self._cached_distributions = {
-            'visit_method': {'1': 0.4, '2': 0.3, '3': 0.2, '4': 0.1},
-            'chief_complaint': {'01': 0.15, '02': 0.12, '03': 0.08, '04': 0.10, '05': 0.12, '06': 0.08, '07': 0.35},
-            'department': {'01': 0.25, '02': 0.20, '03': 0.15, '04': 0.15, '05': 0.10, '06': 0.15},
-            'treatment_result': {'1': 0.7, '2': 0.1, '3': 0.1, '4': 0.05, '5': 0.05}
-        }
+        # 하드코딩된 분포 제거: 모든 분포는 동적 패턴에서 로드되며,
+        # 패턴이 부족한 경우 ConfigManager의 설정을 통해 폴백됩니다.
         
     def generate_all_patients(self, gen_config: PatientGenerationConfig) -> pd.DataFrame:
         """
@@ -130,7 +124,7 @@ class VectorizedPatientGenerator:
             self.logger.warning(f"No patterns found for {pattern_type}")
             return pd.DataFrame()
         
-        # 패턴 데이터를 DataFrame 형태로 변환
+        # 패턴 데이터를 DataFrame 형태로 변환 (공통 포맷)
         patterns = pattern_data['patterns']
         rows = []
         
@@ -143,6 +137,44 @@ class VectorizedPatientGenerator:
                         'pat_sex': age_sex[1],
                         'count': data['count'],
                         'probability': data['probability']
+                    })
+        elif pattern_type == 'visit_method_patterns':
+            for key, value_map in patterns.items():
+                for vst_meth, stats in value_map.items():
+                    rows.append({
+                        'pat_age_gr': key,
+                        'vst_meth': vst_meth,
+                        'probability': stats['probability']
+                    })
+        elif pattern_type == 'chief_complaint_patterns':
+            for key, value_map in patterns.items():
+                age, sex = key.split('_') if '_' in key else (key, '')
+                for msypt, stats in value_map.items():
+                    rows.append({
+                        'pat_age_gr': age,
+                        'pat_sex': sex,
+                        'msypt': msypt,
+                        'probability': stats['probability']
+                    })
+        elif pattern_type == 'department_patterns':
+            for key, value_map in patterns.items():
+                age, sex = key.split('_') if '_' in key else (key, '')
+                for main_trt_p, stats in value_map.items():
+                    rows.append({
+                        'pat_age_gr': age,
+                        'pat_sex': sex,
+                        'main_trt_p': main_trt_p,
+                        'probability': stats['probability']
+                    })
+        elif pattern_type == 'treatment_result_patterns':
+            for key, value_map in patterns.items():
+                ktas, age = key.split('_') if '_' in key else (key, '')
+                for emtrt_rust, stats in value_map.items():
+                    rows.append({
+                        'ktas_fstu': ktas,
+                        'pat_age_gr': age,
+                        'emtrt_rust': emtrt_rust,
+                        'probability': stats['probability']
                     })
         
         return pd.DataFrame(rows) if rows else pd.DataFrame()
@@ -372,10 +404,15 @@ class VectorizedPatientGenerator:
         
         result_attrs = {}
         
+        # 동적 분포 로드
+        visit_method_dist = self._get_dynamic_distribution('visit_method_patterns')
+        chief_complaint_dist = self._get_dynamic_distribution('chief_complaint_patterns')
+        department_dist = self._get_dynamic_distribution('department_patterns')
+
         # 내원수단 생성
         result_attrs['vst_meth'] = self._vectorized_attribute_sampling(
             demographics_df, 
-            self._cached_distributions['visit_method'],
+            visit_method_dist,
             group_cols=['pat_age_gr'],
             target_col='vst_meth'
         )
@@ -383,7 +420,7 @@ class VectorizedPatientGenerator:
         # 주증상 생성
         result_attrs['msypt'] = self._vectorized_attribute_sampling(
             demographics_df,
-            self._cached_distributions['chief_complaint'],
+            chief_complaint_dist,
             group_cols=['pat_age_gr', 'pat_sex'],
             target_col='msypt'
         )
@@ -391,7 +428,7 @@ class VectorizedPatientGenerator:
         # 주요치료과 생성
         result_attrs['main_trt_p'] = self._vectorized_attribute_sampling(
             demographics_df,
-            self._cached_distributions['department'],
+            department_dist,
             group_cols=['pat_age_gr', 'pat_sex'],
             target_col='main_trt_p'
         )
@@ -451,52 +488,50 @@ class VectorizedPatientGenerator:
                 
                 results[group_indices] = chosen_values
             else:
-                # 기본값 설정
-                default_value = self._get_default_value(target_col)
-                results[group_indices] = default_value
+                # 폴백: 설정 기반 기본값 사용 (하드코딩 제거)
+                default_map = self.config.get('fallback.distributions', {}).get(target_col, None)
+                if isinstance(default_map, dict) and len(default_map) > 0:
+                    keys = list(default_map.keys())
+                    vals = np.array(list(default_map.values()), dtype=float)
+                    vals = vals / vals.sum()
+                    results[group_indices] = np.random.choice(keys, size=len(group_indices), p=vals)
+                else:
+                    # 최종 폴백: 관측값 없이 빈 값
+                    results[group_indices] = ''
         
         return results
     
     def _semi_vectorized_ktas_generation(self, combined_df: pd.DataFrame) -> np.ndarray:
-        """계층적 대안을 사용한 KTAS 생성"""
-        self.logger.info("Generating KTAS using hierarchical fallback patterns")
+        """계층적 대안을 사용한 KTAS 생성 (배치/그룹 벡터화)"""
+        self.logger.info("Generating KTAS using hierarchical fallback patterns (batch)")
         results = np.empty(len(combined_df), dtype='object')
-        
+
         # 병원 유형 정보 추가
         combined_df = self._add_hospital_type_info(combined_df)
-        
-        # 지역-병원유형 조합별로 처리
-        for _, row in combined_df.iterrows():
-            idx = row.name
-            region_code = str(row['pat_do_cd'])
-            hospital_code = row['initial_hospital']
-            
-            # 병원 유형 확인
-            hospital_type = self._get_hospital_type(hospital_code)
-            
+
+        # 그룹별로 KTAS 배치 샘플링
+        group_cols = ['pat_do_cd', 'hospital_type']
+        for group_values, group_indices in combined_df.groupby(group_cols).groups.items():
+            region_code, hospital_type = group_values if isinstance(group_values, tuple) else (group_values, 'medium')
+
             # 계층적 KTAS 분포 조회
             ktas_probs = self.pattern_analyzer.get_hierarchical_ktas_distribution(
-                region_code, hospital_type
+                str(region_code), str(hospital_type)
             )
-            
+
             if ktas_probs and sum(ktas_probs.values()) > 0:
-                # 동적 패턴 사용
                 ktas_levels = list(ktas_probs.keys())
-                probabilities = list(ktas_probs.values())
-                
-                # 확률 정규화
-                probabilities = np.array(probabilities)
+                probabilities = np.array(list(ktas_probs.values()), dtype=float)
                 probabilities = probabilities / probabilities.sum()
-                
-                chosen_ktas = np.random.choice(
-                    ktas_levels,
-                    p=probabilities
-                )
-                results[idx] = chosen_ktas
+                results[group_indices] = np.random.choice(ktas_levels, size=len(group_indices), p=probabilities)
             else:
-                # 최종 대안: 기본 KTAS 분포
-                results[idx] = np.random.choice(['3', '4', '5'], p=[0.3, 0.5, 0.2])
-        
+                # 폴백: 설정에서 기본 KTAS 분포 사용
+                default_map = self.config.get('fallback.distributions', {}).get('ktas_fstu', {'3': 0.3, '4': 0.5, '5': 0.2})
+                levels = list(default_map.keys())
+                probs = np.array(list(default_map.values()), dtype=float)
+                probs = probs / probs.sum()
+                results[group_indices] = np.random.choice(levels, size=len(group_indices), p=probs)
+
         return results
     
     def _add_hospital_type_info(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -525,70 +560,51 @@ class VectorizedPatientGenerator:
     
     def _semi_vectorized_treatment_result_generation(self, combined_df: pd.DataFrame, 
                                                    ktas_values: np.ndarray) -> np.ndarray:
-        """Semi-벡터화 치료결과 생성"""
+        """Semi-벡터화 치료결과 생성 (동적 분포 기반)"""
         results = np.empty(len(combined_df), dtype='object')
-        treatment_dist = self._cached_distributions['treatment_result']
-        
+
+        # 동적 조건부 분포 로드
+        tr_dist = self._get_dynamic_distribution('treatment_result_patterns')
+
         # KTAS별 배치 처리
         for ktas_level in ['1', '2', '3', '4', '5']:
             ktas_mask = ktas_values == ktas_level
             ktas_indices = np.where(ktas_mask)[0]
-            
             if len(ktas_indices) == 0:
                 continue
-            
-            # 해당 KTAS 레벨의 환자들을 연령별로 세분화
+
             ktas_patients_df = combined_df.iloc[ktas_indices]
-            
             for age_group in ktas_patients_df['pat_age_gr'].unique():
                 age_mask = ktas_patients_df['pat_age_gr'] == age_group
                 final_indices = ktas_indices[age_mask]
-                
+                if len(final_indices) == 0:
+                    continue
+
                 # 조건부 확률 분포
-                condition_df = treatment_dist.query(
+                condition_df = tr_dist.query(
                     f"ktas_fstu == '{ktas_level}' & pat_age_gr == '{age_group}'"
                 )
-                
                 if len(condition_df) > 0:
-                    probs = condition_df['probability'].values
+                    probs = condition_df['probability'].values.astype(float)
                     probs = probs / probs.sum()
-                    
                     chosen_results = np.random.choice(
                         condition_df['emtrt_rust'].values,
                         size=len(final_indices),
                         p=probs
                     )
-                    
                     results[final_indices] = chosen_results
                 else:
-                    # KTAS별 기본 분포
-                    default_dist = self._get_default_treatment_distribution(ktas_level)
-                    results[final_indices] = np.random.choice(
-                        list(default_dist.keys()),
-                        len(final_indices),
-                        p=list(default_dist.values())
-                    )
-        
+                    # 설정 기반 폴백 분포 (KTAS별)
+                    fallback = self.config.get('fallback.distributions', {}).get('emtrt_rust_by_ktas', {})
+                    default_map = fallback.get(ktas_level, {})
+                    if isinstance(default_map, dict) and len(default_map) > 0:
+                        keys = list(default_map.keys())
+                        vals = np.array(list(default_map.values()), dtype=float)
+                        vals = vals / vals.sum()
+                        results[final_indices] = np.random.choice(keys, size=len(final_indices), p=vals)
+                    else:
+                        results[final_indices] = ''
+
         return results
     
-    def _get_default_value(self, attribute: str) -> str:
-        """속성별 기본값 반환"""
-        defaults = {
-            'vst_meth': '11',  # 도보
-            'msypt': 'R50',    # 일반적인 증상
-            'main_trt_p': '01', # 내과
-            'ktas_fstu': '3',  # 보통 응급
-            'emtrt_rust': '11' # 귀가
-        }
-        return defaults.get(attribute, '')
-    
-    def _get_default_treatment_distribution(self, ktas_level: str) -> Dict[str, float]:
-        """KTAS별 기본 치료결과 분포"""
-        distributions = {
-            '1': {'31': 0.7, '32': 0.2, '12': 0.1},  # 소생급 - 대부분 입원
-            '2': {'31': 0.5, '32': 0.2, '11': 0.3},  # 응급급
-            '3': {'31': 0.3, '11': 0.7},             # 긴급급
-            '4': {'11': 0.8, '31': 0.2},             # 준응급급 - 대부분 귀가
-            '5': {'11': 0.9, '31': 0.1}              # 비응급급 - 거의 귀가
-        }
-        return distributions.get(ktas_level, {'11': 0.8, '31': 0.2})
+    # 하드코딩된 기본값/분포 제거됨. 폴백은 설정(ConfigManager)에서 로드합니다.

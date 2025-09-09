@@ -25,6 +25,8 @@ from src.core.config import ConfigManager
 from src.vectorized.patient_generator import VectorizedPatientGenerator, PatientGenerationConfig
 from src.vectorized.temporal_assigner import TemporalPatternAssigner, TemporalConfig
 from src.vectorized.capacity_processor import CapacityConstraintPostProcessor, CapacityConfig
+from src.validation.statistical_validator import StatisticalValidator
+from src.validation.clinical_validator import ClinicalRuleValidator
 
 
 def setup_logging():
@@ -113,8 +115,7 @@ def run_vectorized_pipeline(args):
             weekend_capacity_multiplier=args.weekend_capacity_multiplier,
             holiday_capacity_multiplier=args.holiday_capacity_multiplier,
             safety_margin=args.safety_margin,
-            overflow_redistribution_method=args.overflow_redistribution_method,
-            max_redistribution_distance=args.max_redistribution_distance
+            overflow_redistribution_method=args.overflow_redistribution_method
         )
         
         final_patients_df = capacity_processor.apply_capacity_constraints(
@@ -128,6 +129,23 @@ def run_vectorized_pipeline(args):
         if args.generate_capacity_report:
             capacity_report = capacity_processor.generate_capacity_report(final_patients_df)
             logger.info(f"Capacity processing summary: {capacity_report}")
+
+        # 품질 게이트: 통계/임상 검증 수행 후 점수 확인
+        if hasattr(args, 'quality_gate_threshold') and args.quality_gate_threshold is not None and args.quality_gate_threshold > 0:
+            logger.info("=== Quality Gate: Validation ===")
+            stat_validator = StatisticalValidator(db_manager, config)
+            clinical_validator = ClinicalRuleValidator(db_manager, config)
+            stat_res = stat_validator.validate_distributions(sample_size=min(50000, len(final_patients_df)))
+            clin_res = clinical_validator.validate_all_clinical_rules(sample_size=min(100000, len(final_patients_df)))
+
+            stat_score = stat_res.get('overall_score', 0.0) if stat_res.get('success', False) else 0.0
+            clin_score = clin_res.get('overall_compliance_rate', 0.0) if clin_res.get('success', False) else 0.0
+            overall_quality = (stat_score + clin_score) / 2.0
+            logger.info(f"Quality scores: statistical={stat_score:.3f}, clinical={clin_score:.3f}, overall={overall_quality:.3f}")
+
+            if overall_quality < args.quality_gate_threshold:
+                logger.error(f"Quality gate failed: {overall_quality:.3f} < {args.quality_gate_threshold:.3f}")
+                return False
         
         # Stage 4: 데이터베이스 저장
         logger.info("=== Stage 4: Database Storage ===")
@@ -438,11 +456,11 @@ def main():
                        help='Database file path')
     parser.add_argument('--total-records', type=int, default=322573,
                        help='Total records to generate')
-    parser.add_argument('--batch-size', type=int, default=50000,
+    parser.add_argument('--batch-size', type=int, default=100000,
                        help='Batch size for memory-efficient processing')
     parser.add_argument('--random-seed', type=int, default=None,
                        help='Random seed for reproducibility')
-    parser.add_argument('--memory-efficient', action='store_true',
+    parser.add_argument('--memory-efficient', action='store_true', default=True,
                        help='Use memory-efficient chunked processing')
     
     # 시간 패턴 설정
@@ -467,11 +485,13 @@ def main():
     parser.add_argument('--safety-margin', type=float, default=1.2,
                        help='Safety margin for capacity limits')
     parser.add_argument('--overflow-redistribution-method', 
-                       choices=['random_available', 'nearest_available', 'second_choice_probability'],
-                       default='nearest_available',
+                       choices=['random_available', 'same_region_first', 'second_choice_probability'],
+                       default='same_region_first',
                        help='Method for redistributing overflow patients')
-    parser.add_argument('--max-redistribution-distance', type=float, default=50.0,
-                       help='Maximum distance for redistribution (km)')
+    
+    # 품질 게이트 설정
+    parser.add_argument('--quality-gate-threshold', type=float, default=0.95,
+                       help='Fail pipeline if overall quality score is below this value')
     
     # 옵션 설정
     parser.add_argument('--validate-temporal', action='store_true',

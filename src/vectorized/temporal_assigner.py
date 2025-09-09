@@ -284,18 +284,17 @@ class TemporalPatternAssigner:
         return result_df
     
     def _generate_random_times(self, count: int) -> List[str]:
-        """랜덤 시간 생성 (기본 분포)"""
-        # 응급실 특성상 오후~저녁에 많은 분포
-        hour_weights = np.array([
-            0.3, 0.2, 0.1, 0.1, 0.2, 0.3, 0.4, 0.5,  # 00-07시
-            0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3,  # 08-15시
-            1.4, 1.5, 1.6, 1.4, 1.2, 1.0, 0.8, 0.5   # 16-23시
-        ])
-        hour_probs = hour_weights / hour_weights.sum()
-        
+        """랜덤 시간 생성 (설정 기반 폴백 분포)"""
+        fallback_weights = self.config.get('temporal.fallback_hour_weights')
+        if not fallback_weights or not isinstance(fallback_weights, list) or len(fallback_weights) != 24:
+            # 균등 분포 폴백
+            hour_probs = np.ones(24) / 24.0
+        else:
+            hour_weights = np.array(fallback_weights, dtype=float)
+            hour_probs = hour_weights / hour_weights.sum()
+
         hours = np.random.choice(24, size=count, p=hour_probs)
         minutes = np.random.randint(0, 60, size=count)
-        
         return [f"{h:02d}{m:02d}" for h, m in zip(hours, minutes)]
     
     def _get_korean_holidays(self, year: int) -> List[datetime]:

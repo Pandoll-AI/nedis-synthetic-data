@@ -22,8 +22,7 @@ class CapacityConfig:
     weekend_capacity_multiplier: float = 0.8
     holiday_capacity_multiplier: float = 0.7
     safety_margin: float = 1.2
-    overflow_redistribution_method: str = 'nearest_available'
-    max_redistribution_distance: float = 50.0  # km
+    overflow_redistribution_method: str = 'same_region_first'
 
 
 class CapacityConstraintPostProcessor:
@@ -43,7 +42,6 @@ class CapacityConstraintPostProcessor:
         
         # 병원 데이터 캐시
         self._hospital_capacity_cache = None
-        self._distance_matrix_cache = None
         self._hospital_choice_probs_cache = None
         
     def apply_capacity_constraints(self, patients_df: pd.DataFrame, 
@@ -94,13 +92,6 @@ class CapacityConstraintPostProcessor:
                     daily_capacity_mean as capacity_beds,
                     COALESCE(ktas1_capacity + ktas2_capacity, daily_capacity_mean * 0.1) as effective_er_capacity
                 FROM nedis_meta.hospital_capacity
-            """)
-        
-        # 거리 매트릭스
-        if self._distance_matrix_cache is None:
-            self._distance_matrix_cache = self.db.fetch_dataframe("""
-                SELECT from_do_cd, to_emorg_cd, distance_km
-                FROM nedis_meta.distance_matrix
             """)
         
         # 병원 선택 확률 (재할당 시 사용)
@@ -311,35 +302,25 @@ class CapacityConstraintPostProcessor:
             if len(candidates) > 0:
                 return np.random.choice(candidates['emorg_cd'].values)
         
-        elif method == 'nearest_available':
-            # 거리 기반 가장 가까운 병원 선택
-            patient_region = patient_data['pat_do_cd']
-            
-            # 해당 지역에서 사용 가능한 병원들까지의 거리 계산
-            region_distances = self._distance_matrix_cache[
-                self._distance_matrix_cache['from_do_cd'] == patient_region
-            ].copy()
-            
-            # 사용 가능한 병원과 거리 정보 결합
-            available_with_distance = pd.merge(
-                available_hospitals[available_hospitals['available_capacity'] > 0],
-                region_distances,
-                left_on='emorg_cd',
-                right_on='to_emorg_cd',
-                how='inner'
-            )
-            
-            # 최대 거리 제한 적용
-            available_with_distance = available_with_distance[
-                available_with_distance['distance_km'] <= capacity_config.max_redistribution_distance
-            ]
-            
-            if len(available_with_distance) > 0:
-                # 가장 가까운 병원 선택
-                nearest_hospital = available_with_distance.loc[
-                    available_with_distance['distance_km'].idxmin(), 'emorg_cd'
-                ]
-                return nearest_hospital
+        elif method == 'same_region_first':
+            # 동일 지역 내 병원 우선 재할당
+            patient_region = str(patient_data['pat_do_cd'])
+            # 병원 지역코드 파생 (pat_do_cd가 있으면 우선 사용, 없으면 adr 사용)
+            hospital_df = self._hospital_capacity_cache.copy()
+            if 'pat_do_cd' in hospital_df.columns:
+                hospital_df['hospital_region'] = hospital_df['pat_do_cd'].astype(str)
+            else:
+                hospital_df['hospital_region'] = hospital_df['adr'].astype(str)
+            hosp_regions = hospital_df[['emorg_cd', 'hospital_region']]
+
+            candidates = available_hospitals[available_hospitals['available_capacity'] > 0].copy()
+            candidates = pd.merge(candidates, hosp_regions, on='emorg_cd', how='left')
+            same_region = candidates[candidates['hospital_region'] == patient_region]
+            if len(same_region) > 0:
+                return np.random.choice(same_region['emorg_cd'].values)
+            else:
+                if len(candidates) > 0:
+                    return np.random.choice(candidates['emorg_cd'].values)
         
         elif method == 'second_choice_probability':
             # 원래 선호도 기반 재할당

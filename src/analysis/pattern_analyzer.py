@@ -192,7 +192,11 @@ class PatternAnalyzer:
             ("ktas_distributions", self.analyze_ktas_distributions),
             ("regional_patterns", self.analyze_regional_patterns),
             ("demographic_patterns", self.analyze_demographic_patterns),
-            ("temporal_patterns", self.analyze_temporal_patterns)
+            ("temporal_patterns", self.analyze_temporal_patterns),
+            ("visit_method_patterns", self.analyze_visit_method_patterns),
+            ("chief_complaint_patterns", self.analyze_chief_complaint_patterns),
+            ("department_patterns", self.analyze_department_patterns),
+            ("treatment_result_patterns", self.analyze_treatment_result_patterns)
         ]
         
         for pattern_name, analysis_method in analysis_methods:
@@ -605,6 +609,136 @@ class PatternAnalyzer:
             'weekday_pattern': weekday_pattern,
             'hourly_pattern': hourly_pattern,
             'analysis_method': 'temporal_distributions'
+        }
+
+    def analyze_visit_method_patterns(self) -> Dict[str, Any]:
+        """연령대별 내원수단 분포 P(vst_meth | pat_age_gr)"""
+        self.logger.info("Analyzing visit method patterns by age group")
+
+        query = """
+            SELECT 
+                pat_age_gr,
+                vst_meth,
+                COUNT(*) as count,
+                COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_age_gr) as probability
+            FROM nedis_original.nedis2017
+            WHERE pat_age_gr IS NOT NULL AND vst_meth IS NOT NULL AND vst_meth != ''
+            GROUP BY pat_age_gr, vst_meth
+            HAVING COUNT(*) >= {min_samples}
+            ORDER BY pat_age_gr
+        """.format(min_samples=self.analysis_config.min_sample_size)
+
+        df = self.db.fetch_dataframe(query)
+
+        patterns: Dict[str, Dict[str, Any]] = {}
+        for _, row in df.iterrows():
+            key = str(row['pat_age_gr'])
+            patterns.setdefault(key, {})[row['vst_meth']] = {
+                'probability': float(row['probability']),
+                'count': int(row['count'])
+            }
+
+        return {
+            'patterns': patterns,
+            'analysis_method': 'visit_method_by_age'
+        }
+
+    def analyze_chief_complaint_patterns(self) -> Dict[str, Any]:
+        """연령/성별별 주증상 분포 P(msypt | pat_age_gr, pat_sex)"""
+        self.logger.info("Analyzing chief complaint patterns by age and sex")
+
+        query = """
+            SELECT 
+                pat_age_gr,
+                pat_sex,
+                msypt,
+                COUNT(*) as count,
+                COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_age_gr, pat_sex) as probability
+            FROM nedis_original.nedis2017
+            WHERE pat_age_gr IS NOT NULL AND pat_sex IS NOT NULL AND msypt IS NOT NULL AND msypt != ''
+            GROUP BY pat_age_gr, pat_sex, msypt
+            HAVING COUNT(*) >= {min_samples}
+        """.format(min_samples=self.analysis_config.min_sample_size)
+
+        df = self.db.fetch_dataframe(query)
+
+        patterns: Dict[str, Dict[str, Any]] = {}
+        for _, row in df.iterrows():
+            key = f"{row['pat_age_gr']}_{row['pat_sex']}"
+            patterns.setdefault(key, {})[row['msypt']] = {
+                'probability': float(row['probability']),
+                'count': int(row['count'])
+            }
+
+        return {
+            'patterns': patterns,
+            'analysis_method': 'chief_complaint_by_age_sex'
+        }
+
+    def analyze_department_patterns(self) -> Dict[str, Any]:
+        """연령/성별별 주요치료과 분포 P(main_trt_p | pat_age_gr, pat_sex)"""
+        self.logger.info("Analyzing department patterns by age and sex")
+
+        query = """
+            SELECT 
+                pat_age_gr,
+                pat_sex,
+                main_trt_p,
+                COUNT(*) as count,
+                COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_age_gr, pat_sex) as probability
+            FROM nedis_original.nedis2017
+            WHERE pat_age_gr IS NOT NULL AND pat_sex IS NOT NULL AND main_trt_p IS NOT NULL AND main_trt_p != ''
+            GROUP BY pat_age_gr, pat_sex, main_trt_p
+            HAVING COUNT(*) >= {min_samples}
+        """.format(min_samples=self.analysis_config.min_sample_size)
+
+        df = self.db.fetch_dataframe(query)
+
+        patterns: Dict[str, Dict[str, Any]] = {}
+        for _, row in df.iterrows():
+            key = f"{row['pat_age_gr']}_{row['pat_sex']}"
+            patterns.setdefault(key, {})[row['main_trt_p']] = {
+                'probability': float(row['probability']),
+                'count': int(row['count'])
+            }
+
+        return {
+            'patterns': patterns,
+            'analysis_method': 'department_by_age_sex'
+        }
+
+    def analyze_treatment_result_patterns(self) -> Dict[str, Any]:
+        """KTAS/연령별 치료결과 분포 P(emtrt_rust | ktas_fstu, pat_age_gr)"""
+        self.logger.info("Analyzing treatment result patterns by KTAS and age group")
+
+        query = """
+            SELECT 
+                ktas_fstu,
+                pat_age_gr,
+                emtrt_rust,
+                COUNT(*) as count,
+                COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY ktas_fstu, pat_age_gr) as probability
+            FROM nedis_original.nedis2017
+            WHERE ktas_fstu IN ('1','2','3','4','5')
+              AND pat_age_gr IS NOT NULL
+              AND emtrt_rust IS NOT NULL AND emtrt_rust != ''
+            GROUP BY ktas_fstu, pat_age_gr, emtrt_rust
+            HAVING COUNT(*) >= {min_samples}
+        """.format(min_samples=self.analysis_config.min_sample_size)
+
+        df = self.db.fetch_dataframe(query)
+
+        patterns: Dict[str, Dict[str, Any]] = {}
+        for _, row in df.iterrows():
+            key = f"{row['ktas_fstu']}_{row['pat_age_gr']}"
+            patterns.setdefault(key, {})[row['emtrt_rust']] = {
+                'probability': float(row['probability']),
+                'count': int(row['count'])
+            }
+
+        return {
+            'patterns': patterns,
+            'analysis_method': 'treatment_result_by_ktas_age'
         }
     
     def _create_hierarchical_patterns(self, patterns: Dict[str, Any], 
