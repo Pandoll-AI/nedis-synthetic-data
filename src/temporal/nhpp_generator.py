@@ -19,8 +19,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from core.database import DatabaseManager
-from core.config import ConfigManager
+from src.core.database import DatabaseManager
+from src.core.config import ConfigManager
 
 
 class NHPPTemporalGenerator:
