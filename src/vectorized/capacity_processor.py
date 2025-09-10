@@ -23,6 +23,7 @@ class CapacityConfig:
     holiday_capacity_multiplier: float = 0.7
     safety_margin: float = 1.2
     overflow_redistribution_method: str = 'same_region_first'
+    enable_overflow: bool = False
 
 
 class CapacityConstraintPostProcessor:
@@ -57,12 +58,31 @@ class CapacityConstraintPostProcessor:
             용량 제약이 적용된 환자 데이터프레임
         """
         self.logger.info(f"Applying capacity constraints to {len(patients_df):,} patients")
+
+        # Overflow 재할당 비활성화 시 즉시 통과
+        if not capacity_config.enable_overflow:
+            self.logger.info("Overflow redistribution disabled; skipping capacity check and redistribution.")
+            result_df = patients_df.copy()
+            if 'emorg_cd' not in result_df.columns and 'initial_hospital' in result_df.columns:
+                result_df['emorg_cd'] = result_df['initial_hospital']
+            result_df['overflow_flag'] = False
+            result_df['redistribution_method'] = 'disabled'
+            return result_df
         
         # 필요한 참조 데이터 로드
         self._load_capacity_reference_data()
         
         # 용량 제약 계산
         daily_capacity_limits = self._calculate_dynamic_capacity_limits(capacity_config)
+
+        # 참조 데이터가 없거나 계산된 용량이 비어있는 경우: 단계 스킵
+        if daily_capacity_limits is None or len(daily_capacity_limits) == 0:
+            self.logger.warning("No capacity reference available; skipping capacity redistribution.")
+            result_df = patients_df.copy()
+            result_df['emorg_cd'] = result_df.get('initial_hospital', result_df.get('emorg_cd'))
+            result_df['overflow_flag'] = False
+            result_df['redistribution_method'] = 'skipped'
+            return result_df
         
         # 현재 병원별 부하 계산
         current_loads = self._calculate_current_loads(patients_df)
@@ -108,6 +128,10 @@ class CapacityConstraintPostProcessor:
         """동적 용량 한계 계산"""
         self.logger.info("Calculating dynamic capacity limits")
         
+        if self._hospital_capacity_cache is None or len(self._hospital_capacity_cache) == 0:
+            self.logger.warning("Hospital capacity table is empty or missing")
+            return pd.DataFrame()
+
         hospital_capacity = self._hospital_capacity_cache.copy()
         
         # 기본 용량에 안전 마진 적용

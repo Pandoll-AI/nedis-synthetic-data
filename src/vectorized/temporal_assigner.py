@@ -128,10 +128,12 @@ class TemporalPatternAssigner:
             monthly_multipliers = {i: 1.0 for i in range(1, 13)}
         
         # 기본 통계 계산 (원본 데이터에서)
-        original_stats = self.db.fetch_dataframe("""
+        # 원본 통계 테이블 선택
+        src_table = self.pattern_analyzer.src_table if hasattr(self.pattern_analyzer, 'src_table') else 'nedis_original.nedis2017'
+        original_stats = self.db.fetch_dataframe(f"""
             SELECT COUNT(*) as total_count,
                    COUNT(DISTINCT vst_dt) as unique_dates
-            FROM nedis_original.nedis2017
+            FROM {src_table}
             WHERE vst_dt IS NOT NULL
         """)
         

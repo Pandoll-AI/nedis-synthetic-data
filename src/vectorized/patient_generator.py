@@ -51,6 +51,17 @@ class VectorizedPatientGenerator:
         self._hospital_data = None
         # 하드코딩된 분포 제거: 모든 분포는 동적 패턴에서 로드되며,
         # 패턴이 부족한 경우 ConfigManager의 설정을 통해 폴백됩니다.
+
+        # 원본 소스 테이블(연도) 선택: config 'original.source_table' 또는 'original.year'
+        table_from_config = self.config.get('original.source_table')
+        if table_from_config and isinstance(table_from_config, str):
+            self.src_table = table_from_config
+        else:
+            year = self.config.get('original.year')
+            if isinstance(year, int):
+                self.src_table = f"nedis_original.nedis{year}"
+            else:
+                self.src_table = "nedis_original.nedis2017"
         
     def generate_all_patients(self, gen_config: PatientGenerationConfig) -> pd.DataFrame:
         """
@@ -83,22 +94,53 @@ class VectorizedPatientGenerator:
         
         # 병원 데이터 로드 (용량 및 유형 정보 포함)
         if self._hospital_data is None:
-            self._hospital_data = self.db.fetch_dataframe("""
-                SELECT 
-                    emorg_cd, 
-                    adr, 
-                    hospname, 
-                    daily_capacity_mean as capacity_beds,
-                    CASE 
-                        WHEN daily_capacity_mean >= 300 THEN 'large'
-                        WHEN daily_capacity_mean >= 100 THEN 'medium' 
-                        ELSE 'small'
-                    END as hospital_type,
-                    SUBSTR(adr, 1, 2) as major_region,
-                    adr as region_code
-                FROM nedis_meta.hospital_capacity
-                WHERE daily_capacity_mean IS NOT NULL
-            """)
+            try:
+                self._hospital_data = self.db.fetch_dataframe("""
+                    SELECT 
+                        emorg_cd, 
+                        adr, 
+                        hospname, 
+                        daily_capacity_mean as capacity_beds,
+                        CASE 
+                            WHEN daily_capacity_mean >= 300 THEN 'large'
+                            WHEN daily_capacity_mean >= 100 THEN 'medium' 
+                            ELSE 'small'
+                        END as hospital_type,
+                        SUBSTR(adr, 1, 2) as major_region,
+                        adr as region_code
+                    FROM nedis_meta.hospital_capacity
+                    WHERE daily_capacity_mean IS NOT NULL
+                """)
+            except Exception:
+                # 시도 2: 원본 DB가 ATTACH 되어있는 경우(alias 파생)
+                alias = None
+                src_table = self.pattern_analyzer._patterns_cache.get('src_table') if hasattr(self.pattern_analyzer, '_patterns_cache') else None
+                # 대신 config에서 추출
+                st = self.config.get('original.source_table')
+                if isinstance(st, str) and '.' in st:
+                    alias = st.split('.')[0]
+                if alias:
+                    try:
+                        self._hospital_data = self.db.fetch_dataframe(f"""
+                            SELECT 
+                                emorg_cd, 
+                                adr, 
+                                hospname, 
+                                daily_capacity_mean as capacity_beds,
+                                CASE 
+                                    WHEN daily_capacity_mean >= 300 THEN 'large'
+                                    WHEN daily_capacity_mean >= 100 THEN 'medium' 
+                                    ELSE 'small'
+                                END as hospital_type,
+                                SUBSTR(adr, 1, 2) as major_region,
+                                adr as region_code
+                            FROM {alias}.nedis_meta.hospital_capacity
+                            WHERE daily_capacity_mean IS NOT NULL
+                        """)
+                    except Exception:
+                        self._hospital_data = None
+                else:
+                    self._hospital_data = None
         
         # 동적 패턴 분석 수행
         if self._dynamic_patterns is None:
@@ -203,7 +245,11 @@ class VectorizedPatientGenerator:
         
         # 메모리 정리
         del chunks
-        
+
+        # 전역 고유 키 재생성 (중복 방지)
+        result_df['index_key'] = [f"SYNTH_{i:08d}" for i in range(len(result_df))]
+        result_df['pat_reg_no'] = [f"P{i:08d}" for i in range(len(result_df))]
+
         return result_df
     
     def _generate_patients_vectorized(self, total_records: int) -> pd.DataFrame:
@@ -242,7 +288,7 @@ class VectorizedPatientGenerator:
             SELECT pat_do_cd, pat_age_gr, pat_sex, 
                    COUNT(*) as count,
                    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER() as probability
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE pat_do_cd IS NOT NULL 
               AND pat_age_gr IS NOT NULL 
               AND pat_sex IS NOT NULL
@@ -250,7 +296,7 @@ class VectorizedPatientGenerator:
             ORDER BY pat_do_cd, pat_age_gr, pat_sex
         """
         
-        demo_dist = self.db.fetch_dataframe(demo_query)
+        demo_dist = self.db.fetch_dataframe(demo_query.format(src=self.src_table))
         
         # 다항분포 샘플링
         demo_counts = np.random.multinomial(
@@ -538,8 +584,9 @@ class VectorizedPatientGenerator:
         """병원 유형 정보 추가"""
         # 병원 유형 매핑 생성
         hospital_type_map = {}
-        for _, hospital in self._hospital_data.iterrows():
-            hospital_type_map[hospital['emorg_cd']] = hospital['hospital_type']
+        if self._hospital_data is not None and len(self._hospital_data) > 0:
+            for _, hospital in self._hospital_data.iterrows():
+                hospital_type_map[hospital['emorg_cd']] = hospital['hospital_type']
         
         # DataFrame에 병원 유형 추가
         df = df.copy()
@@ -549,9 +596,9 @@ class VectorizedPatientGenerator:
     
     def _get_hospital_type(self, hospital_code: str) -> str:
         """병원 코드로 병원 유형 조회"""
-        hospital_info = self._hospital_data[
-            self._hospital_data['emorg_cd'] == hospital_code
-        ]
+        if self._hospital_data is None or len(self._hospital_data) == 0:
+            return 'medium'
+        hospital_info = self._hospital_data[self._hospital_data['emorg_cd'] == hospital_code]
         
         if len(hospital_info) > 0:
             return hospital_info.iloc[0]['hospital_type']

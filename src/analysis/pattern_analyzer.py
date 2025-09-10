@@ -176,6 +176,17 @@ class PatternAnalyzer:
         
         # 패턴 데이터 저장
         self._patterns_cache = {}
+
+        # 원본 소스 테이블(연도) 선택: config 'original.source_table' 또는 'original.year'
+        table_from_config = self.config.get('original.source_table')
+        if table_from_config and isinstance(table_from_config, str):
+            self.src_table = table_from_config
+        else:
+            year = self.config.get('original.year')
+            if isinstance(year, int):
+                self.src_table = f"nedis_original.nedis{year}"
+            else:
+                self.src_table = "nedis_original.nedis2017"
     
     def analyze_all_patterns(self) -> Dict[str, Any]:
         """모든 패턴 분석 수행"""
@@ -184,7 +195,7 @@ class PatternAnalyzer:
         patterns = {}
         
         # 데이터 해시 계산
-        data_hash = self.cache.get_data_hash(self.db, "nedis_original.nedis2017")
+        data_hash = self.cache.get_data_hash(self.db, self.src_table)
         
         # 각 패턴 분석
         analysis_methods = [
@@ -232,6 +243,32 @@ class PatternAnalyzer:
         
         self.logger.info(f"Pattern analysis completed: {len(patterns)} pattern types")
         return patterns
+
+    def _resolve_capacity_table(self) -> Optional[str]:
+        """Resolve fully-qualified hospital capacity table if present.
+
+        Returns a qualified table name or None if not found.
+        """
+        # Candidates: alias.nedis_meta.hospital_capacity, nedis_meta.hospital_capacity
+        alias = None
+        try:
+            if hasattr(self, 'src_table') and isinstance(self.src_table, str) and '.' in self.src_table:
+                alias = self.src_table.split('.')[0]
+        except Exception:
+            alias = None
+
+        candidates = []
+        if alias:
+            candidates.append(f"{alias}.nedis_meta.hospital_capacity")
+        candidates.append("nedis_meta.hospital_capacity")
+
+        for cand in candidates:
+            try:
+                if self.db.table_exists(cand):
+                    return cand
+            except Exception:
+                continue
+        return None
     
     def analyze_hospital_allocation_patterns(self) -> Dict[str, Any]:
         """병원 할당 패턴 분석 (지역 기반)"""
@@ -244,12 +281,12 @@ class PatternAnalyzer:
                 emorg_cd as hospital_code,
                 COUNT(*) as visit_count,
                 COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_do_cd) as region_probability
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE pat_do_cd IS NOT NULL AND emorg_cd IS NOT NULL
             GROUP BY pat_do_cd, emorg_cd
             HAVING COUNT(*) >= {min_samples}
             ORDER BY pat_do_cd, visit_count DESC
-        """.format(min_samples=self.analysis_config.min_sample_size)
+        """.format(min_samples=self.analysis_config.min_sample_size, src=self.src_table)
         
         allocation_data = self.db.fetch_dataframe(query)
         
@@ -288,143 +325,187 @@ class PatternAnalyzer:
     def analyze_ktas_distributions(self) -> Dict[str, Any]:
         """KTAS 분포 분석 (계층적 대안 포함)"""
         self.logger.info("Analyzing KTAS distributions with hierarchical fallback")
-        
-        # 소분류 (4자리 지역코드) + 병원유형별 KTAS 분포
-        detailed_query = """
-            SELECT 
-                n.pat_do_cd as region_code,
-                n.emorg_cd as hospital_code,
-                CASE 
-                    WHEN h.daily_capacity_mean >= 100 THEN 'large'
-                    WHEN h.daily_capacity_mean >= 50 THEN 'medium' 
-                    ELSE 'small'
-                END as hospital_type,
-                n.ktas_fstu,
-                COUNT(*) as count,
-                COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(
-                    PARTITION BY h.pat_do_cd, 
-                    CASE WHEN h.capacity_beds >= 300 THEN 'large'
-                         WHEN h.capacity_beds >= 100 THEN 'medium' 
-                         ELSE 'small' END
-                ) as probability
-            FROM nedis_original.nedis2017 n
-            JOIN nedis_meta.hospital_capacity h ON n.emorg_cd = h.emorg_cd
-            WHERE n.ktas_fstu IN ('1', '2', '3', '4', '5')
-              AND h.pat_do_cd IS NOT NULL
-            GROUP BY h.pat_do_cd, h.emorg_cd, hospital_type, n.ktas_fstu
-            HAVING COUNT(*) >= {min_samples}
-        """.format(min_samples=self.analysis_config.min_sample_size)
-        
-        detailed_data = self.db.fetch_dataframe(detailed_query)
-        
-        # 1단계: 소분류 패턴
-        detailed_patterns = {}
-        for _, row in detailed_data.iterrows():
-            key = f"{row['region_code']}_{row['hospital_type']}"
-            if key not in detailed_patterns:
-                detailed_patterns[key] = {}
-            
-            detailed_patterns[key][row['ktas_fstu']] = {
-                'probability': float(row['probability']),
-                'count': int(row['count'])
-            }
-        
-        # 2단계: 대분류 (첫 2자리) 패턴
-        major_query = """
-            SELECT 
-                SUBSTR(h.pat_do_cd, 1, 2) as major_region,
-                CASE 
-                    WHEN h.capacity_beds >= 300 THEN 'large'
-                    WHEN h.capacity_beds >= 100 THEN 'medium' 
-                    ELSE 'small'
-                END as hospital_type,
-                n.ktas_fstu,
-                COUNT(*) as count,
-                COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(
-                    PARTITION BY SUBSTR(h.pat_do_cd, 1, 2),
-                    CASE WHEN h.capacity_beds >= 300 THEN 'large'
-                         WHEN h.capacity_beds >= 100 THEN 'medium' 
-                         ELSE 'small' END
-                ) as probability
-            FROM nedis_original.nedis2017 n
-            JOIN nedis_meta.hospital_capacity h ON n.emorg_cd = h.emorg_cd
-            WHERE n.ktas_fstu IN ('1', '2', '3', '4', '5')
-              AND h.pat_do_cd IS NOT NULL
-            GROUP BY major_region, hospital_type, n.ktas_fstu
-            HAVING COUNT(*) >= {min_samples}
-        """.format(min_samples=self.analysis_config.min_sample_size)
-        
-        major_data = self.db.fetch_dataframe(major_query)
-        
-        major_patterns = {}
-        for _, row in major_data.iterrows():
-            key = f"{row['major_region']}_{row['hospital_type']}"
-            if key not in major_patterns:
-                major_patterns[key] = {}
-            
-            major_patterns[key][row['ktas_fstu']] = {
-                'probability': float(row['probability']),
-                'count': int(row['count'])
-            }
-        
-        # 3단계: 전국 패턴
-        national_query = """
-            SELECT 
-                CASE 
-                    WHEN h.capacity_beds >= 300 THEN 'large'
-                    WHEN h.capacity_beds >= 100 THEN 'medium' 
-                    ELSE 'small'
-                END as hospital_type,
-                n.ktas_fstu,
-                COUNT(*) as count,
-                COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY 
-                    CASE WHEN h.capacity_beds >= 300 THEN 'large'
-                         WHEN h.capacity_beds >= 100 THEN 'medium' 
-                         ELSE 'small' END
-                ) as probability
-            FROM nedis_original.nedis2017 n
-            JOIN nedis_meta.hospital_capacity h ON n.emorg_cd = h.emorg_cd
-            WHERE n.ktas_fstu IN ('1', '2', '3', '4', '5')
-            GROUP BY hospital_type, n.ktas_fstu
-        """
-        
-        national_data = self.db.fetch_dataframe(national_query)
-        
-        national_patterns = {}
-        for _, row in national_data.iterrows():
-            key = row['hospital_type']
-            if key not in national_patterns:
-                national_patterns[key] = {}
-            
-            national_patterns[key][row['ktas_fstu']] = {
-                'probability': float(row['probability']),
-                'count': int(row['count'])
-            }
-        
-        # 4단계: 최종 대안 (전체 평균)
+        capacity_tbl = self._resolve_capacity_table()
+
+        if capacity_tbl:
+            # Use capacity table to derive hospital_type and region via capacity metadata
+            detailed_query = """
+                SELECT 
+                    n.pat_do_cd as region_code,
+                    h.emorg_cd as hospital_code,
+                    CASE 
+                        WHEN h.daily_capacity_mean >= 300 THEN 'large'
+                        WHEN h.daily_capacity_mean >= 100 THEN 'medium' 
+                        ELSE 'small'
+                    END as hospital_type,
+                    n.ktas_fstu,
+                    COUNT(*) as count,
+                    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(
+                        PARTITION BY h.adr, 
+                        CASE WHEN h.daily_capacity_mean >= 300 THEN 'large'
+                             WHEN h.daily_capacity_mean >= 100 THEN 'medium' 
+                             ELSE 'small' END
+                    ) as probability
+                FROM {src} n
+                JOIN {cap} h ON n.emorg_cd = h.emorg_cd
+                WHERE n.ktas_fstu IN ('1', '2', '3', '4', '5')
+                  AND h.adr IS NOT NULL
+                GROUP BY n.pat_do_cd, h.adr, h.emorg_cd, hospital_type, n.ktas_fstu
+                HAVING COUNT(*) >= {min_samples}
+            """
+
+            detailed_data = self.db.fetch_dataframe(
+                detailed_query.format(src=self.src_table, cap=capacity_tbl, min_samples=self.analysis_config.min_sample_size)
+            )
+
+            detailed_patterns = {}
+            for _, row in detailed_data.iterrows():
+                key = f"{row['region_code']}_{row['hospital_type']}"
+                detailed_patterns.setdefault(key, {})[row['ktas_fstu']] = {
+                    'probability': float(row['probability']),
+                    'count': int(row['count'])
+                }
+
+            major_query = """
+                SELECT 
+                    SUBSTR(h.adr, 1, 2) as major_region,
+                    CASE 
+                        WHEN h.daily_capacity_mean >= 300 THEN 'large'
+                        WHEN h.daily_capacity_mean >= 100 THEN 'medium' 
+                        ELSE 'small'
+                    END as hospital_type,
+                    n.ktas_fstu,
+                    COUNT(*) as count,
+                    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(
+                        PARTITION BY SUBSTR(h.adr, 1, 2),
+                        CASE WHEN h.daily_capacity_mean >= 300 THEN 'large'
+                             WHEN h.daily_capacity_mean >= 100 THEN 'medium' 
+                             ELSE 'small' END
+                    ) as probability
+                FROM {src} n
+                JOIN {cap} h ON n.emorg_cd = h.emorg_cd
+                WHERE n.ktas_fstu IN ('1', '2', '3', '4', '5')
+                  AND h.adr IS NOT NULL
+                GROUP BY major_region, hospital_type, n.ktas_fstu
+                HAVING COUNT(*) >= {min_samples}
+            """
+
+            major_data = self.db.fetch_dataframe(
+                major_query.format(src=self.src_table, cap=capacity_tbl, min_samples=self.analysis_config.min_sample_size)
+            )
+            major_patterns = {}
+            for _, row in major_data.iterrows():
+                key = f"{row['major_region']}_{row['hospital_type']}"
+                major_patterns.setdefault(key, {})[row['ktas_fstu']] = {
+                    'probability': float(row['probability']),
+                    'count': int(row['count'])
+                }
+
+            national_query = """
+                SELECT 
+                    CASE 
+                        WHEN h.daily_capacity_mean >= 300 THEN 'large'
+                        WHEN h.daily_capacity_mean >= 100 THEN 'medium' 
+                        ELSE 'small'
+                    END as hospital_type,
+                    n.ktas_fstu,
+                    COUNT(*) as count,
+                    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY 
+                        CASE WHEN h.daily_capacity_mean >= 300 THEN 'large'
+                             WHEN h.daily_capacity_mean >= 100 THEN 'medium' 
+                             ELSE 'small' END
+                    ) as probability
+                FROM {src} n
+                JOIN {cap} h ON n.emorg_cd = h.emorg_cd
+                WHERE n.ktas_fstu IN ('1', '2', '3', '4', '5')
+                GROUP BY hospital_type, n.ktas_fstu
+            """
+
+            national_data = self.db.fetch_dataframe(national_query.format(src=self.src_table, cap=capacity_tbl))
+            national_patterns = {}
+            for _, row in national_data.iterrows():
+                national_patterns.setdefault(row['hospital_type'], {})[row['ktas_fstu']] = {
+                    'probability': float(row['probability']),
+                    'count': int(row['count'])
+                }
+
+        else:
+            # Fallback without capacity table: approximate using only patient region codes
+            detailed_query = """
+                SELECT 
+                    n.pat_do_cd as region_code,
+                    n.ktas_fstu,
+                    COUNT(*) as count,
+                    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(
+                        PARTITION BY n.pat_do_cd
+                    ) as probability
+                FROM {src} n
+                WHERE n.ktas_fstu IN ('1', '2', '3', '4', '5')
+                  AND n.pat_do_cd IS NOT NULL
+                GROUP BY n.pat_do_cd, n.ktas_fstu
+                HAVING COUNT(*) >= {min_samples}
+            """
+            detailed_data = self.db.fetch_dataframe(
+                detailed_query.format(src=self.src_table, min_samples=self.analysis_config.min_sample_size)
+            )
+            detailed_patterns = {}
+            for _, row in detailed_data.iterrows():
+                key = f"{row['region_code']}_medium"
+                detailed_patterns.setdefault(key, {})[row['ktas_fstu']] = {
+                    'probability': float(row['probability']),
+                    'count': int(row['count'])
+                }
+
+            major_query = """
+                SELECT 
+                    SUBSTR(n.pat_do_cd, 1, 2) as major_region,
+                    n.ktas_fstu,
+                    COUNT(*) as count,
+                    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(
+                        PARTITION BY SUBSTR(n.pat_do_cd, 1, 2)
+                    ) as probability
+                FROM {src} n
+                WHERE n.ktas_fstu IN ('1', '2', '3', '4', '5')
+                  AND n.pat_do_cd IS NOT NULL
+                GROUP BY major_region, n.ktas_fstu
+                HAVING COUNT(*) >= {min_samples}
+            """
+            major_data = self.db.fetch_dataframe(
+                major_query.format(src=self.src_table, min_samples=self.analysis_config.min_sample_size)
+            )
+            major_patterns = {}
+            for _, row in major_data.iterrows():
+                key = f"{row['major_region']}_medium"
+                major_patterns.setdefault(key, {})[row['ktas_fstu']] = {
+                    'probability': float(row['probability']),
+                    'count': int(row['count'])
+                }
+
+            national_patterns = {'medium': {}}
+
         overall_query = """
             SELECT 
                 ktas_fstu,
                 COUNT(*) as count,
                 COUNT(*) * 1.0 / SUM(COUNT(*)) OVER() as probability
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE ktas_fstu IN ('1', '2', '3', '4', '5')
             GROUP BY ktas_fstu
         """
-        
-        overall_data = self.db.fetch_dataframe(overall_query)
+
+        overall_data = self.db.fetch_dataframe(overall_query.format(src=self.src_table))
         overall_pattern = {}
         for _, row in overall_data.iterrows():
             overall_pattern[row['ktas_fstu']] = {
                 'probability': float(row['probability']),
                 'count': int(row['count'])
             }
-        
+
         return {
-            'detailed_patterns': detailed_patterns,  # 소분류
-            'major_patterns': major_patterns,        # 대분류
-            'national_patterns': national_patterns,  # 병원유형별 전국
-            'overall_pattern': overall_pattern,      # 전체 평균
+            'detailed_patterns': detailed_patterns,
+            'major_patterns': major_patterns,
+            'national_patterns': national_patterns,
+            'overall_pattern': overall_pattern,
             'hierarchy_levels': 4,
             'analysis_method': 'hierarchical_ktas_analysis'
         }
@@ -477,11 +558,11 @@ class PatternAnalyzer:
                 AVG(CASE WHEN ktas_fstu IN ('1', '2') THEN 1.0 ELSE 0.0 END) as urgent_rate,
                 COUNT(DISTINCT emorg_cd) as unique_hospitals,
                 AVG(CASE WHEN pat_sex = 'M' THEN 1.0 ELSE 0.0 END) as male_ratio
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE pat_do_cd IS NOT NULL
             GROUP BY pat_do_cd
             HAVING COUNT(*) >= {min_samples}
-        """.format(min_samples=self.analysis_config.min_sample_size)
+        """.format(min_samples=self.analysis_config.min_sample_size, src=self.src_table)
         
         regional_data = self.db.fetch_dataframe(regional_query)
         
@@ -515,11 +596,11 @@ class PatternAnalyzer:
                 AVG(CASE WHEN ktas_fstu IN ('1', '2') THEN 1.0 ELSE 0.0 END) as urgent_rate,
                 MODE() WITHIN GROUP (ORDER BY msypt) as common_symptom,
                 MODE() WITHIN GROUP (ORDER BY main_trt_p) as common_department
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE pat_age_gr IS NOT NULL AND pat_sex IS NOT NULL
             GROUP BY pat_age_gr, pat_sex
             HAVING COUNT(*) >= {min_samples}
-        """.format(min_samples=self.analysis_config.min_sample_size)
+        """.format(min_samples=self.analysis_config.min_sample_size, src=self.src_table)
         
         demo_data = self.db.fetch_dataframe(demo_query)
         
@@ -550,13 +631,13 @@ class PatternAnalyzer:
                 EXTRACT(MONTH FROM STRPTIME(vst_dt, '%Y%m%d')) as month,
                 COUNT(*) as count,
                 COUNT(*) * 1.0 / SUM(COUNT(*)) OVER() as probability
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE vst_dt IS NOT NULL
             GROUP BY month
             ORDER BY month
         """
         
-        monthly_data = self.db.fetch_dataframe(monthly_query)
+        monthly_data = self.db.fetch_dataframe(monthly_query.format(src=self.src_table))
         monthly_pattern = {}
         for _, row in monthly_data.iterrows():
             monthly_pattern[int(row['month'])] = {
@@ -570,13 +651,13 @@ class PatternAnalyzer:
                 EXTRACT(DOW FROM STRPTIME(vst_dt, '%Y%m%d')) as day_of_week,
                 COUNT(*) as count,
                 COUNT(*) * 1.0 / SUM(COUNT(*)) OVER() as probability
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE vst_dt IS NOT NULL
             GROUP BY day_of_week
             ORDER BY day_of_week
         """
         
-        weekday_data = self.db.fetch_dataframe(weekday_query)
+        weekday_data = self.db.fetch_dataframe(weekday_query.format(src=self.src_table))
         weekday_pattern = {}
         for _, row in weekday_data.iterrows():
             weekday_pattern[int(row['day_of_week'])] = {
@@ -590,13 +671,13 @@ class PatternAnalyzer:
                 EXTRACT(HOUR FROM STRPTIME(vst_tm, '%H%M')) as hour,
                 COUNT(*) as count,
                 COUNT(*) * 1.0 / SUM(COUNT(*)) OVER() as probability
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE vst_tm IS NOT NULL AND vst_tm != ''
             GROUP BY hour
             ORDER BY hour
         """
         
-        hourly_data = self.db.fetch_dataframe(hourly_query)
+        hourly_data = self.db.fetch_dataframe(hourly_query.format(src=self.src_table))
         hourly_pattern = {}
         for _, row in hourly_data.iterrows():
             hourly_pattern[int(row['hour'])] = {
@@ -621,12 +702,12 @@ class PatternAnalyzer:
                 vst_meth,
                 COUNT(*) as count,
                 COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_age_gr) as probability
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE pat_age_gr IS NOT NULL AND vst_meth IS NOT NULL AND vst_meth != ''
             GROUP BY pat_age_gr, vst_meth
             HAVING COUNT(*) >= {min_samples}
             ORDER BY pat_age_gr
-        """.format(min_samples=self.analysis_config.min_sample_size)
+        """.format(min_samples=self.analysis_config.min_sample_size, src=self.src_table)
 
         df = self.db.fetch_dataframe(query)
 
@@ -654,11 +735,11 @@ class PatternAnalyzer:
                 msypt,
                 COUNT(*) as count,
                 COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_age_gr, pat_sex) as probability
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE pat_age_gr IS NOT NULL AND pat_sex IS NOT NULL AND msypt IS NOT NULL AND msypt != ''
             GROUP BY pat_age_gr, pat_sex, msypt
             HAVING COUNT(*) >= {min_samples}
-        """.format(min_samples=self.analysis_config.min_sample_size)
+        """.format(min_samples=self.analysis_config.min_sample_size, src=self.src_table)
 
         df = self.db.fetch_dataframe(query)
 
@@ -686,11 +767,11 @@ class PatternAnalyzer:
                 main_trt_p,
                 COUNT(*) as count,
                 COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_age_gr, pat_sex) as probability
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE pat_age_gr IS NOT NULL AND pat_sex IS NOT NULL AND main_trt_p IS NOT NULL AND main_trt_p != ''
             GROUP BY pat_age_gr, pat_sex, main_trt_p
             HAVING COUNT(*) >= {min_samples}
-        """.format(min_samples=self.analysis_config.min_sample_size)
+        """.format(min_samples=self.analysis_config.min_sample_size, src=self.src_table)
 
         df = self.db.fetch_dataframe(query)
 
@@ -718,13 +799,13 @@ class PatternAnalyzer:
                 emtrt_rust,
                 COUNT(*) as count,
                 COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY ktas_fstu, pat_age_gr) as probability
-            FROM nedis_original.nedis2017
+            FROM {src}
             WHERE ktas_fstu IN ('1','2','3','4','5')
               AND pat_age_gr IS NOT NULL
               AND emtrt_rust IS NOT NULL AND emtrt_rust != ''
             GROUP BY ktas_fstu, pat_age_gr, emtrt_rust
             HAVING COUNT(*) >= {min_samples}
-        """.format(min_samples=self.analysis_config.min_sample_size)
+        """.format(min_samples=self.analysis_config.min_sample_size, src=self.src_table)
 
         df = self.db.fetch_dataframe(query)
 

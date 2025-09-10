@@ -1,6 +1,0 @@
-{
-  "phase": 1,
-  "success": false,
-  "error": "Binder Error: Ambiguous reference to catalog or schema \"nedis_synthetic\" - use a fully qualified path like \"nedis_synthetic.nedis_synthetic\"",
-  "end_time": "2025-09-08T16:27:19.313111"
-}

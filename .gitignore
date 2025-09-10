@@ -1,0 +1,15 @@
+# Project ignores
+*.duckdb
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+.cache/
+**/__pycache__/
+*.py[cod]
+logs/**
+outputs/**
+cache/patterns/*.pkl
+*.log
+.DS_Store

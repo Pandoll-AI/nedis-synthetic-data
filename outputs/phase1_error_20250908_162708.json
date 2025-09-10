@@ -1,6 +1,0 @@
-{
-  "phase": 1,
-  "success": false,
-  "error": "'DatabaseManager' object has no attribute 'logger'",
-  "end_time": "2025-09-08T16:27:08.049336"
-}

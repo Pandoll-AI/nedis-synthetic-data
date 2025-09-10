@@ -58,7 +58,63 @@ def run_vectorized_pipeline(args):
         db_manager = DatabaseManager(args.database)
         config = ConfigManager()
         
-        # 구성 요소 초기화
+        # 세션 출력 디렉토리 준비
+        run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+        outputs_root = Path('outputs')
+        session_dir = outputs_root / f'session_{run_id}'
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        # 원본 소스 테이블 자동 선택(연도 기반) — 구성요소 초기화 이전에 수행
+        try:
+            source_year = args.year
+            # 선택적으로 원본 DB를 별도 ATTACH
+            attach_alias = None
+            if getattr(args, 'source_database', None):
+                attach_alias = 'srcdb'
+                db_manager.conn.execute(f"ATTACH '{args.source_database}' AS {attach_alias}")
+                logger.info(f"Attached source database: {args.source_database} as {attach_alias}")
+
+            # 후보 테이블 경로 생성 함수
+            def candidates(year: int):
+                prefixes = []
+                if attach_alias:
+                    prefixes += [f"{attach_alias}.nedis_original", f"{attach_alias}.nedis_data", f"{attach_alias}.main"]
+                prefixes += ["nedis_original", "nedis_data", "main"]
+                return [f"{p}.nedis{year}" for p in prefixes]
+
+            chosen = None
+            # 우선 요청 연도 탐색
+            for cand in candidates(source_year):
+                try:
+                    db_manager.execute_query(f"SELECT 1 FROM {cand} LIMIT 1")
+                    chosen = cand
+                    break
+                except Exception:
+                    continue
+            # 없으면 2017로 폴백
+            if not chosen:
+                for cand in candidates(2017):
+                    try:
+                        db_manager.execute_query(f"SELECT 1 FROM {cand} LIMIT 1")
+                        chosen = cand
+                        break
+                    except Exception:
+                        continue
+            if chosen:
+                # 연도 추출 시도
+                try:
+                    year = int(chosen.split('nedis')[-1])
+                except Exception:
+                    year = source_year
+                config.set('original.year', year)
+                config.set('original.source_table', chosen)
+                logger.info(f"Using original source table: {chosen}")
+            else:
+                logger.warning("No original source table found for requested year or fallback; proceeding may fail.")
+        except Exception as e:
+            logger.warning(f"Source table auto-selection failed: {e}")
+
+        # 구성 요소 초기화 (source_table 설정 이후)
         patient_generator = VectorizedPatientGenerator(db_manager, config)
         temporal_assigner = TemporalPatternAssigner(db_manager, config)
         capacity_processor = CapacityConstraintPostProcessor(db_manager, config)
@@ -67,8 +123,20 @@ def run_vectorized_pipeline(args):
         logger.info("=== Stage 1: Vectorized Patient Generation ===")
         stage1_start = time.time()
         
+        # total records 결정: --use-original-size 지정 시 원본 테이블 카운트 사용
+        total_records = args.total_records
+        if args.use_original_size:
+            src_table = config.get('original.source_table')
+            if src_table:
+                try:
+                    src_cnt = db_manager.fetch_dataframe(f"SELECT COUNT(*) AS cnt FROM {src_table}")['cnt'].iloc[0]
+                    total_records = int(src_cnt)
+                    logger.info(f"Using original size as total_records: {total_records:,}")
+                except Exception as e:
+                    logger.warning(f"Failed to read original size from {src_table}: {e}")
+
         generation_config = PatientGenerationConfig(
-            total_records=args.total_records,
+            total_records=total_records,
             batch_size=args.batch_size,
             random_seed=args.random_seed,
             memory_efficient=args.memory_efficient
@@ -115,7 +183,8 @@ def run_vectorized_pipeline(args):
             weekend_capacity_multiplier=args.weekend_capacity_multiplier,
             holiday_capacity_multiplier=args.holiday_capacity_multiplier,
             safety_margin=args.safety_margin,
-            overflow_redistribution_method=args.overflow_redistribution_method
+            overflow_redistribution_method=args.overflow_redistribution_method,
+            enable_overflow=args.enable_overflow_redistribution
         )
         
         final_patients_df = capacity_processor.apply_capacity_constraints(
@@ -159,7 +228,7 @@ def run_vectorized_pipeline(args):
         # 전체 파이프라인 완료
         total_pipeline_time = time.time() - pipeline_start_time
         
-        # 성능 보고서 생성
+        # 성능 보고서 생성 (세션 디렉토리 저장)
         generate_performance_report(
             total_records=len(final_patients_df),
             stage_times={
@@ -169,7 +238,8 @@ def run_vectorized_pipeline(args):
                 'database_storage': stage4_time,
                 'total': total_pipeline_time
             },
-            args=args
+            args=args,
+            output_dir=session_dir
         )
         
         logger.info("=== Pipeline Completed Successfully ===")
@@ -280,8 +350,27 @@ def save_clinical_records(patients_df: pd.DataFrame, db_manager: DatabaseManager
     clinical_data['otrm_tm'] = clinical_data['vst_tm'].str[:2].astype(int) + np.random.randint(1, 6, len(clinical_data))
     clinical_data['otrm_tm'] = clinical_data['otrm_tm'].apply(lambda x: f"{min(x, 23):02d}{np.random.randint(0, 60):02d}")
     
-    # 데이터베이스에 벌크 삽입 (DuckDB 방식)
-    db_manager.conn.execute("INSERT INTO nedis_synthetic.clinical_records SELECT * FROM clinical_data")
+    # DuckDB에 DataFrame 등록
+    db_manager.conn.register('clinical_data', clinical_data)
+    
+    # 테이블 컬럼과 매핑할 입력 컬럼 정의
+    target_cols = [
+        'index_key', 'emorg_cd', 'pat_reg_no', 'vst_dt', 'vst_tm',
+        'pat_age_gr', 'pat_sex', 'pat_do_cd', 'vst_meth', 'ktas_fstu',
+        'ktas01', 'msypt', 'main_trt_p', 'emtrt_rust', 'otrm_dt', 'otrm_tm'
+    ]
+    # 누락 컬럼 보정 (빈 값 채움)
+    for col in target_cols:
+        if col not in clinical_data.columns:
+            clinical_data[col] = None
+    # 다시 등록 (보정 포함)
+    db_manager.conn.register('clinical_data', clinical_data)
+    
+    insert_cols_sql = ", ".join(target_cols)
+    select_cols_sql = ", ".join([f"{c}" for c in target_cols])
+    db_manager.conn.execute(
+        f"INSERT INTO nedis_synthetic.clinical_records ({insert_cols_sql}) SELECT {select_cols_sql} FROM clinical_data"
+    )
 
 
 def save_hospital_allocations(patients_df: pd.DataFrame, db_manager: DatabaseManager):
@@ -310,14 +399,23 @@ def save_hospital_allocations(patients_df: pd.DataFrame, db_manager: DatabaseMan
     
     logger.info(f"Saving {len(final_allocations):,} hospital allocation records")
     
-    # 데이터베이스에 저장
-    final_allocations.to_sql(
-        'hospital_allocations',
-        db_manager.conn,
-        schema='nedis_synthetic', 
-        if_exists='append',
-        index=False,
-        method='multi'
+    # DuckDB에 DataFrame 등록 후 스키마 지정하여 삽입
+    # 대상 테이블 컬럼 조회
+    cols_df = db_manager.conn.execute(
+        "PRAGMA table_info('nedis_synthetic.hospital_allocations')"
+    ).fetch_df()
+    target_cols = cols_df['name'].tolist()
+
+    # 누락 컬럼 보정 및 초과 컬럼 제거
+    insert_df = final_allocations.copy()
+    for col in target_cols:
+        if col not in insert_df.columns:
+            insert_df[col] = 0 if col in ('overflow_received', 'allocated_count') else None
+    insert_df = insert_df[target_cols]
+
+    db_manager.conn.register('final_allocations', insert_df)
+    db_manager.conn.execute(
+        f"INSERT INTO nedis_synthetic.hospital_allocations ({', '.join(target_cols)}) SELECT {', '.join(target_cols)} FROM final_allocations"
     )
 
 
@@ -353,15 +451,12 @@ def generate_and_save_basic_diagnoses(patients_df: pd.DataFrame, db_manager: Dat
             'generation_method': 'vectorized_basic'
         })
     
-    # 데이터베이스에 저장
-    diagnoses_df = pd.DataFrame(basic_diagnoses)
-    diagnoses_df.to_sql(
-        'diag_er',
-        db_manager.conn,
-        schema='nedis_synthetic',
-        if_exists='append', 
-        index=False,
-        method='multi'
+    # 데이터베이스에 저장 (스키마 호환성을 위해 명시적 컬럼 삽입)
+    diagnoses_df = pd.DataFrame(basic_diagnoses)[['index_key', 'position', 'diagnosis_code', 'diagnosis_category']]
+    db_manager.conn.register('diag_df', diagnoses_df)
+    db_manager.conn.execute(
+        "INSERT INTO nedis_synthetic.diag_er (index_key, position, diagnosis_code, diagnosis_category) "
+        "SELECT index_key, position, diagnosis_code, diagnosis_category FROM diag_df"
     )
     
     logger.info(f"Generated {len(basic_diagnoses):,} basic diagnosis records")
@@ -401,7 +496,7 @@ def generate_basic_diagnosis(ktas_level: str, chief_complaint: str) -> str:
     return 'R69'  # 상세불명의 질환
 
 
-def generate_performance_report(total_records: int, stage_times: dict, args):
+def generate_performance_report(total_records: int, stage_times: dict, args, output_dir: Path = None):
     """성능 보고서 생성"""
     logger = logging.getLogger(__name__)
     
@@ -440,7 +535,8 @@ def generate_performance_report(total_records: int, stage_times: dict, args):
     ]
     
     # 보고서 저장
-    report_path = Path("outputs") / f"vectorized_performance_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+    out_base = output_dir if output_dir is not None else Path("outputs")
+    report_path = out_base / f"vectorized_performance_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
     report_path.parent.mkdir(exist_ok=True)
     report_path.write_text("\n".join(report_lines), encoding='utf-8')
     
@@ -450,6 +546,9 @@ def generate_performance_report(total_records: int, stage_times: dict, args):
 def main():
     """메인 실행 함수"""
     parser = argparse.ArgumentParser(description='NEDIS Vectorized Synthetic Data Pipeline')
+    logging.getLogger(__name__).warning(
+        "CLI rename: prefer 'scripts/ndis_synth.py' (this path remains for backward-compatibility)"
+    )
     
     # 기본 설정
     parser.add_argument('--database', default='nedis_sample.duckdb',
@@ -488,6 +587,8 @@ def main():
                        choices=['random_available', 'same_region_first', 'second_choice_probability'],
                        default='same_region_first',
                        help='Method for redistributing overflow patients')
+    parser.add_argument('--enable-overflow-redistribution', action='store_true', default=False,
+                       help='Enable capacity overflow redistribution (disabled by default)')
     
     # 품질 게이트 설정
     parser.add_argument('--quality-gate-threshold', type=float, default=0.95,
@@ -500,6 +601,10 @@ def main():
                        help='Generate detailed capacity processing report')
     parser.add_argument('--clean-existing-data', action='store_true',
                        help='Clean existing synthetic data before generation')
+    parser.add_argument('--source-database', type=str, default=None,
+                       help='Path to source DB for original patterns (optional, attaches as read-only)')
+    parser.add_argument('--use-original-size', action='store_true',
+                       help='Use original table record count as total synthetic records')
     
     args = parser.parse_args()
     
