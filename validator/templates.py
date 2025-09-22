@@ -6,7 +6,7 @@ HTML_TEMPLATE = '''
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Database Comparison Report</title>
+    <title>NEDIS Synthetic Data — Database Comparison Report</title>
     <style>
         * {
             margin: 0;
@@ -521,27 +521,27 @@ HTML_TEMPLATE = '''
 <body>
     <div class="container">
         <div class="header">
-            <h1>Database Comparison Report</h1>
-            <p>{{db1_name}} vs {{db2_name}}</p>
+            <h1>NEDIS Synthetic Data — Database Comparison</h1>
+            <p>Original vs Synthetic: {{db1_name}} ↔ {{db2_name}}</p>
         </div>
         
         <div class="summary">
             <h2>Summary</h2>
             <div class="summary-grid">
                 <div class="summary-card">
-                    <h3>Common Tables</h3>
+                    <h3>Common tables</h3>
                     <div class="value">{{common_tables_count}}</div>
                 </div>
                 <div class="summary-card">
-                    <h3>DB1 Only</h3>
+                    <h3>Only in {{db1_name}}</h3>
                     <div class="value">{{db1_only_count}}</div>
                 </div>
                 <div class="summary-card">
-                    <h3>DB2 Only</h3>
+                    <h3>Only in {{db2_name}}</h3>
                     <div class="value">{{db2_only_count}}</div>
                 </div>
                 <div class="summary-card">
-                    <h3>Total Comparisons</h3>
+                    <h3>Total comparisons</h3>
                     <div class="value">{{total_comparisons}}</div>
                 </div>
             </div>
@@ -549,7 +549,7 @@ HTML_TEMPLATE = '''
         
         <div class="content">
             <div class="section">
-                <h2>Table Overview</h2>
+                <h2>Table overview</h2>
                 <div class="table-overview">
                     <table class="comparison-table">
                         <thead>
@@ -694,7 +694,7 @@ def create_categorical_distribution(db1_stats, db2_stats, db1_name="Database 1",
     return f'''
     <div class="distribution-comparison">
         <div class="chart-header">
-            <h5>Value Distribution Comparison</h5>
+            <h5>Value distribution comparison</h5>
             <div class="chart-legend">
                 <div class="legend-item">
                     <div class="legend-color db1-color"></div>
@@ -720,7 +720,7 @@ def create_categorical_distribution(db1_stats, db2_stats, db1_name="Database 1",
                         <th>Value</th>
                         <th>{db1_name}</th>
                         <th>{db2_name}</th>
-                        <th>Difference</th>
+                        <th>Δ Difference</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -801,7 +801,7 @@ def create_table_overview_row(table_name, db1_info, db2_info, status):
         'match': '✓ Match',
         'partial': '⚠ Partial',
         'missing': '✗ Missing'
-    }.get(status, '? Unknown')
+    }.get(status, '· Unknown')
     
     return f'''
     <tr>
@@ -824,21 +824,21 @@ def create_column_comparison(column_name, db1_stats, db2_stats, db1_name, db2_na
     if db1_stats:
         db1_content = f'''
         <div class="stat-group">
-            <h4>{db1_name} - {db1_stats.data_type}</h4>
+            <h4>{db1_name} • {db1_stats.data_type}</h4>
             <div class="stat-item">
-                <span class="stat-label">Total Count:</span>
+                <span class="stat-label">Total rows:</span>
                 <span class="stat-value">{db1_stats.total_count:,}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Non-null Count:</span>
+                <span class="stat-label">Non-null rows:</span>
                 <span class="stat-value">{db1_stats.total_count - db1_stats.null_count:,}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Null Count:</span>
+                <span class="stat-label">Null rows (%):</span>
                 <span class="stat-value">{db1_stats.null_count:,} ({format_percentage(db1_stats.null_percentage)})</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Unique Count:</span>
+                <span class="stat-label">Unique values:</span>
                 <span class="stat-value">{db1_stats.unique_count:,}</span>
             </div>
             {'<div class="stat-item"><span class="stat-label">Mean:</span><span class="stat-value">' + format_number(db1_stats.mean_val) + '</span></div>' if db1_stats.mean_val is not None else ''}
@@ -853,21 +853,21 @@ def create_column_comparison(column_name, db1_stats, db2_stats, db1_name, db2_na
     if db2_stats:
         db2_content = f'''
         <div class="stat-group">
-            <h4>{db2_name} - {db2_stats.data_type}</h4>
+            <h4>{db2_name} • {db2_stats.data_type}</h4>
             <div class="stat-item">
-                <span class="stat-label">Total Count:</span>
+                <span class="stat-label">Total rows:</span>
                 <span class="stat-value">{db2_stats.total_count:,}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Non-null Count:</span>
+                <span class="stat-label">Non-null rows:</span>
                 <span class="stat-value">{db2_stats.total_count - db2_stats.null_count:,}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Null Count:</span>
+                <span class="stat-label">Null rows (%):</span>
                 <span class="stat-value">{db2_stats.null_count:,} ({format_percentage(db2_stats.null_percentage)})</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Unique Count:</span>
+                <span class="stat-label">Unique values:</span>
                 <span class="stat-value">{db2_stats.unique_count:,}</span>
             </div>
             {'<div class="stat-item"><span class="stat-label">Mean:</span><span class="stat-value">' + format_number(db2_stats.mean_val) + '</span></div>' if db2_stats.mean_val is not None else ''}

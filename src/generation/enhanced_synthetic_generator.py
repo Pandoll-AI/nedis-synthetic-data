@@ -25,6 +25,7 @@ from ..privacy.privacy_validator import PrivacyValidator, PrivacyValidationResul
 from ..vectorized.patient_generator import VectorizedPatientGenerator
 from ..vectorized.temporal_assigner import TemporalPatternAssigner
 from ..temporal.comprehensive_time_gap_synthesizer import ComprehensiveTimeGapSynthesizer
+from ..temporal.time_gap_synthesizer import TimeGapSynthesizer
 from ..core.database import DatabaseManager
 from ..core.config import ConfigManager
 
@@ -83,17 +84,11 @@ class EnhancedSyntheticGenerator:
         # Initialize base generators
         self.base_generator = VectorizedPatientGenerator(self.db_manager, self.config_manager)
         self.temporal_assigner = TemporalPatternAssigner(self.db_manager, self.config_manager)
-        # Create a simple config dict for time gap synthesizer
-        time_gap_config = {
-            'ktas_time_gaps': {
-                1: {'mean': 30, 'std': 15},
-                2: {'mean': 60, 'std': 30},
-                3: {'mean': 120, 'std': 60},
-                4: {'mean': 180, 'std': 90},
-                5: {'mean': 240, 'std': 120}
-            }
-        }
-        self.time_gap_synthesizer = ComprehensiveTimeGapSynthesizer(db_path, time_gap_config)
+        # Time gap synthesizers
+        # Comprehensive: generates all timestamps from KTAS/result using learned per-gap distributions
+        self.time_gap_synthesizer = ComprehensiveTimeGapSynthesizer(self.db_manager, self.config_manager)
+        # Partial: when visit times are already assigned, derive downstream timestamps from them
+        self.partial_time_gap_synthesizer = TimeGapSynthesizer(self.db_manager, self.config_manager)
         
         # Initialize privacy components
         self.id_manager = IdentifierManager()
@@ -198,13 +193,50 @@ class EnhancedSyntheticGenerator:
         
         # Assign temporal patterns if generator didn't
         if 'vst_dt' not in patients_df.columns and start_date and end_date:
+            # Assign visit timestamps using temporal patterns within the requested range
             patients_df = self.temporal_assigner.assign_all_timestamps(
                 patients_df, gen_config
             )
-        
-        # Generate time gaps if not already present
-        if 'ocur_dt' in patients_df.columns or 'ocur_tm' in patients_df.columns:
-            patients_df = self.time_gap_synthesizer.generate_all_time_gaps(patients_df)
+            # With visit times present, generate downstream times (ER discharge/admission)
+            try:
+                # Build visit datetime series (YYYYMMDD + HHMM)
+                visit_datetimes = pd.to_datetime(
+                    patients_df['vst_dt'].astype(str) + patients_df['vst_tm'].astype(str).str.zfill(4),
+                    format='%Y%m%d%H%M', errors='coerce'
+                )
+
+                # KTAS and treatment result arrays
+                ktas_levels = patients_df['ktas01'].values if 'ktas01' in patients_df.columns else patients_df['ktas_lv'].values
+                treatment_results = patients_df['emtrt_rust'].values if 'emtrt_rust' in patients_df.columns else np.array([''] * len(patients_df))
+
+                tg_df = self.partial_time_gap_synthesizer.generate_time_gaps(
+                    ktas_levels=ktas_levels,
+                    treatment_results=treatment_results,
+                    visit_datetimes=visit_datetimes
+                )
+                # Merge generated time columns back
+                for col in ['otrm_dt', 'otrm_tm', 'inpat_dt', 'inpat_tm']:
+                    if col in tg_df.columns:
+                        patients_df[col] = tg_df[col]
+            except Exception as e:
+                logger.warning(f"Partial time gap generation failed, continuing without: {e}")
+        else:
+            # No visit timestamps present; generate full timeline using comprehensive synthesizer
+            try:
+                ktas_levels = patients_df['ktas01'].values if 'ktas01' in patients_df.columns else patients_df['ktas_lv'].values
+                treatment_results = patients_df['emtrt_rust'].values if 'emtrt_rust' in patients_df.columns else np.array([''] * len(patients_df))
+                base_dt = start_date if isinstance(start_date, datetime) else None
+                time_df = self.time_gap_synthesizer.generate_all_time_gaps(
+                    ktas_levels=ktas_levels,
+                    treatment_results=treatment_results,
+                    base_datetime=base_dt
+                )
+                # Assign all generated datetime columns
+                for col in ['ocur_dt','ocur_tm','vst_dt','vst_tm','otrm_dt','otrm_tm','inpat_dt','inpat_tm','otpat_dt','otpat_tm']:
+                    if col in time_df.columns:
+                        patients_df[col] = time_df[col]
+            except Exception as e:
+                logger.warning(f"Comprehensive time gap generation failed, continuing without: {e}")
         
         return patients_df
     
