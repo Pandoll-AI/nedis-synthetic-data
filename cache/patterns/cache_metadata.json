@@ -1247,7 +1247,115 @@
       "data_hash": "bd8cd6f7ad35559e6087c4bd7d99966b",
       "created_at": "2025-09-11T00:46:13.749757",
       "file_path": "cache/patterns/treatment_result_patterns_bd8cd6f7ad35559e6087c4bd7d99966b.pkl"
+    },
+    "hospital_allocation_5b16926d2890f47a37cdf807c6ec4f3d": {
+      "analysis_type": "hospital_allocation",
+      "data_hash": "5b16926d2890f47a37cdf807c6ec4f3d",
+      "created_at": "2025-09-23T14:12:38.614299",
+      "file_path": "cache/patterns/hospital_allocation_5b16926d2890f47a37cdf807c6ec4f3d.pkl"
+    },
+    "ktas_distributions_5b16926d2890f47a37cdf807c6ec4f3d": {
+      "analysis_type": "ktas_distributions",
+      "data_hash": "5b16926d2890f47a37cdf807c6ec4f3d",
+      "created_at": "2025-09-23T14:12:38.631707",
+      "file_path": "cache/patterns/ktas_distributions_5b16926d2890f47a37cdf807c6ec4f3d.pkl"
+    },
+    "regional_patterns_5b16926d2890f47a37cdf807c6ec4f3d": {
+      "analysis_type": "regional_patterns",
+      "data_hash": "5b16926d2890f47a37cdf807c6ec4f3d",
+      "created_at": "2025-09-23T14:12:38.674984",
+      "file_path": "cache/patterns/regional_patterns_5b16926d2890f47a37cdf807c6ec4f3d.pkl"
+    },
+    "demographic_patterns_5b16926d2890f47a37cdf807c6ec4f3d": {
+      "analysis_type": "demographic_patterns",
+      "data_hash": "5b16926d2890f47a37cdf807c6ec4f3d",
+      "created_at": "2025-09-23T14:12:39.921837",
+      "file_path": "cache/patterns/demographic_patterns_5b16926d2890f47a37cdf807c6ec4f3d.pkl"
+    },
+    "temporal_patterns_5b16926d2890f47a37cdf807c6ec4f3d": {
+      "analysis_type": "temporal_patterns",
+      "data_hash": "5b16926d2890f47a37cdf807c6ec4f3d",
+      "created_at": "2025-09-23T14:12:40.118484",
+      "file_path": "cache/patterns/temporal_patterns_5b16926d2890f47a37cdf807c6ec4f3d.pkl"
+    },
+    "visit_method_patterns_5b16926d2890f47a37cdf807c6ec4f3d": {
+      "analysis_type": "visit_method_patterns",
+      "data_hash": "5b16926d2890f47a37cdf807c6ec4f3d",
+      "created_at": "2025-09-23T14:12:40.141137",
+      "file_path": "cache/patterns/visit_method_patterns_5b16926d2890f47a37cdf807c6ec4f3d.pkl"
+    },
+    "chief_complaint_patterns_5b16926d2890f47a37cdf807c6ec4f3d": {
+      "analysis_type": "chief_complaint_patterns",
+      "data_hash": "5b16926d2890f47a37cdf807c6ec4f3d",
+      "created_at": "2025-09-23T14:12:40.348105",
+      "file_path": "cache/patterns/chief_complaint_patterns_5b16926d2890f47a37cdf807c6ec4f3d.pkl"
+    },
+    "department_patterns_5b16926d2890f47a37cdf807c6ec4f3d": {
+      "analysis_type": "department_patterns",
+      "data_hash": "5b16926d2890f47a37cdf807c6ec4f3d",
+      "created_at": "2025-09-23T14:12:40.381353",
+      "file_path": "cache/patterns/department_patterns_5b16926d2890f47a37cdf807c6ec4f3d.pkl"
+    },
+    "treatment_result_patterns_5b16926d2890f47a37cdf807c6ec4f3d": {
+      "analysis_type": "treatment_result_patterns",
+      "data_hash": "5b16926d2890f47a37cdf807c6ec4f3d",
+      "created_at": "2025-09-23T14:12:40.423816",
+      "file_path": "cache/patterns/treatment_result_patterns_5b16926d2890f47a37cdf807c6ec4f3d.pkl"
+    },
+    "hospital_allocation_25bd4156293b3ef9431a509263c7653b": {
+      "analysis_type": "hospital_allocation",
+      "data_hash": "25bd4156293b3ef9431a509263c7653b",
+      "created_at": "2025-09-23T19:01:57.908875",
+      "file_path": "cache/patterns/hospital_allocation_25bd4156293b3ef9431a509263c7653b.pkl"
+    },
+    "ktas_distributions_25bd4156293b3ef9431a509263c7653b": {
+      "analysis_type": "ktas_distributions",
+      "data_hash": "25bd4156293b3ef9431a509263c7653b",
+      "created_at": "2025-09-23T19:01:57.930963",
+      "file_path": "cache/patterns/ktas_distributions_25bd4156293b3ef9431a509263c7653b.pkl"
+    },
+    "regional_patterns_25bd4156293b3ef9431a509263c7653b": {
+      "analysis_type": "regional_patterns",
+      "data_hash": "25bd4156293b3ef9431a509263c7653b",
+      "created_at": "2025-09-23T19:01:57.984237",
+      "file_path": "cache/patterns/regional_patterns_25bd4156293b3ef9431a509263c7653b.pkl"
+    },
+    "demographic_patterns_25bd4156293b3ef9431a509263c7653b": {
+      "analysis_type": "demographic_patterns",
+      "data_hash": "25bd4156293b3ef9431a509263c7653b",
+      "created_at": "2025-09-23T19:01:59.531410",
+      "file_path": "cache/patterns/demographic_patterns_25bd4156293b3ef9431a509263c7653b.pkl"
+    },
+    "temporal_patterns_25bd4156293b3ef9431a509263c7653b": {
+      "analysis_type": "temporal_patterns",
+      "data_hash": "25bd4156293b3ef9431a509263c7653b",
+      "created_at": "2025-09-23T19:01:59.888464",
+      "file_path": "cache/patterns/temporal_patterns_25bd4156293b3ef9431a509263c7653b.pkl"
+    },
+    "visit_method_patterns_25bd4156293b3ef9431a509263c7653b": {
+      "analysis_type": "visit_method_patterns",
+      "data_hash": "25bd4156293b3ef9431a509263c7653b",
+      "created_at": "2025-09-23T19:01:59.922058",
+      "file_path": "cache/patterns/visit_method_patterns_25bd4156293b3ef9431a509263c7653b.pkl"
+    },
+    "chief_complaint_patterns_25bd4156293b3ef9431a509263c7653b": {
+      "analysis_type": "chief_complaint_patterns",
+      "data_hash": "25bd4156293b3ef9431a509263c7653b",
+      "created_at": "2025-09-23T19:02:00.188859",
+      "file_path": "cache/patterns/chief_complaint_patterns_25bd4156293b3ef9431a509263c7653b.pkl"
+    },
+    "department_patterns_25bd4156293b3ef9431a509263c7653b": {
+      "analysis_type": "department_patterns",
+      "data_hash": "25bd4156293b3ef9431a509263c7653b",
+      "created_at": "2025-09-23T19:02:00.226680",
+      "file_path": "cache/patterns/department_patterns_25bd4156293b3ef9431a509263c7653b.pkl"
+    },
+    "treatment_result_patterns_25bd4156293b3ef9431a509263c7653b": {
+      "analysis_type": "treatment_result_patterns",
+      "data_hash": "25bd4156293b3ef9431a509263c7653b",
+      "created_at": "2025-09-23T19:02:00.279116",
+      "file_path": "cache/patterns/treatment_result_patterns_25bd4156293b3ef9431a509263c7653b.pkl"
     }
   },
-  "last_updated": "2025-09-11T00:46:13.749770"
+  "last_updated": "2025-09-23T19:02:00.279127"
 }

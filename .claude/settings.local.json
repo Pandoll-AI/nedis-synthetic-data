@@ -6,7 +6,8 @@
       "Bash(duckdb:*)",
       "Bash(python:*)",
       "Bash(pip install:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []
