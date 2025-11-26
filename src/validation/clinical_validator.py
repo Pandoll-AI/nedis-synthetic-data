@@ -189,6 +189,33 @@ class ClinicalRuleValidator:
                 }
             ],
             
+            "vital_signs_correlation": [
+                {
+                    "rule_id": "VC001",
+                    "description": "맥압(Pulse Pressure) 과도한 협소 (< 20)",
+                    "condition": "(vst_sbp - vst_dbp) < 20",
+                    "severity": "warning",
+                    "expected_rate": 0.01,
+                    "max_tolerance": 0.05
+                },
+                {
+                    "rule_id": "VC002",
+                    "description": "맥압(Pulse Pressure) 과도한 확대 (> 100)",
+                    "condition": "(vst_sbp - vst_dbp) > 100",
+                    "severity": "warning",
+                    "expected_rate": 0.01,
+                    "max_tolerance": 0.05
+                },
+                {
+                    "rule_id": "VC003",
+                    "description": "쇼크 인덱스(Shock Index) > 1.0 (KTAS 1,2)",
+                    "condition": "ktas_fstu IN ('1', '2') AND (vst_per_pu / NULLIF(vst_sbp, 0)) > 1.0",
+                    "severity": "info",
+                    "expected_rate": 0.10,
+                    "max_tolerance": 0.30
+                }
+            ],
+            
             "diagnosis_treatment_consistency": [
                 {
                     "rule_id": "DT001",
@@ -444,6 +471,24 @@ class ClinicalRuleValidator:
             
             elif "vst_oxy < 70 or vst_oxy > 100" in condition:
                 return (data['vst_oxy'] < 70) | (data['vst_oxy'] > 100)
+            
+            # 생체징후 상관관계
+            elif "(vst_sbp - vst_dbp) < 20" in condition:
+                # 측정된 값에 대해서만 검증 (>0)
+                valid_mask = (data['vst_sbp'] > 0) & (data['vst_dbp'] > 0)
+                return valid_mask & ((data['vst_sbp'] - data['vst_dbp']) < 20)
+            
+            elif "(vst_sbp - vst_dbp) > 100" in condition:
+                valid_mask = (data['vst_sbp'] > 0) & (data['vst_dbp'] > 0)
+                return valid_mask & ((data['vst_sbp'] - data['vst_dbp']) > 100)
+                
+            elif "(vst_per_pu / nullif(vst_sbp, 0)) > 1.0" in condition:
+                 # Shock Index check
+                 valid_mask = (data['ktas_fstu'].isin(['1', '2'])) & \
+                              (data['vst_sbp'] > 0) & \
+                              (data['vst_per_pu'] > 0)
+                 
+                 return valid_mask & ((data['vst_per_pu'] / data['vst_sbp']) > 1.0)
             
             # 복잡한 조건은 None 반환 (SQL로 처리)
             else:

@@ -67,6 +67,15 @@ class ComprehensiveTimeGapSynthesizer:
                 'max_hours': 240
             }
         }
+        
+        # Flow Types Definition (Patient Flow Patterns)
+        self.flow_types = {
+            'fast_track': {'description': 'Light symptoms, quick discharge', 'multiplier': 0.5},
+            'standard': {'description': 'Average case', 'multiplier': 1.0},
+            'observation': {'description': 'Requires observation, longer stay', 'multiplier': 2.0},
+            'critical_care': {'description': 'Severe, ICU admission, very long stay', 'multiplier': 3.0},
+            'boarding': {'description': 'Admission decided but waiting for bed', 'multiplier': 4.0}
+        }
     
     def analyze_all_time_patterns(self) -> Dict[str, Any]:
         """
@@ -273,6 +282,43 @@ class ComprehensiveTimeGapSynthesizer:
         
         return distributions
     
+        return distributions
+    
+    def _assign_flow_type(self, ktas: str, result: str) -> str:
+        """Assign flow type based on KTAS and Result"""
+        # 입원 (31: 병실, 32: 중환자실)
+        if result == '32':
+            return 'critical_care'
+        elif result == '31':
+            if ktas in ['1', '2']:
+                return 'boarding'  # 중증인데 병실 입원이면 대기 가능성 높음
+            else:
+                return 'observation'
+        
+        # 전원 (21, 22)
+        elif result in ['21', '22']:
+            if ktas in ['1', '2']:
+                return 'critical_care' # 중증 전원은 위급
+            else:
+                return 'standard'
+                
+        # 귀가 (11)
+        elif result == '11':
+            if ktas in ['4', '5']:
+                return 'fast_track'
+            else:
+                return 'standard'
+                
+        # 사망 (41)
+        elif result == '41':
+            return 'critical_care'
+            
+        return 'standard'
+
+    def _get_flow_type_multiplier(self, flow_type: str) -> float:
+        """Get multiplier for flow type"""
+        return self.flow_types.get(flow_type, self.flow_types['standard'])['multiplier']
+
     def generate_all_time_gaps(
         self,
         ktas_levels: np.ndarray,
@@ -315,6 +361,10 @@ class ComprehensiveTimeGapSynthesizer:
             # Get distributions for this patient profile
             dist_params = self._get_hierarchical_distribution(ktas, result)
             
+            # Determine Flow Type and Multiplier
+            flow_type = self._assign_flow_type(ktas, result)
+            multiplier = self._get_flow_type_multiplier(flow_type)
+            
             # Generate arrival time (with some randomness)
             hours_offset = np.random.uniform(0, 24*365)  # Random time in year
             vst_time = base_datetime + timedelta(hours=hours_offset)
@@ -325,10 +375,13 @@ class ComprehensiveTimeGapSynthesizer:
                 dist_params.get('incident_to_arrival'),
                 default_mean=60, default_std=30
             )
+            
+            # Apply multiplier to incident gap
             if incident_gap and incident_gap > 0:
+                incident_gap *= multiplier
                 ocur_time = vst_time - timedelta(minutes=incident_gap)
             else:
-                ocur_time = vst_time - timedelta(minutes=30)  # Default 30 min before
+                ocur_time = vst_time - timedelta(minutes=30 * multiplier)
             ocur_times.append(ocur_time)
             
             # Generate discharge time (after arrival)
@@ -336,10 +389,13 @@ class ComprehensiveTimeGapSynthesizer:
                 dist_params.get('er_stay'),
                 default_mean=180, default_std=60
             )
+            
+            # Apply multiplier to ER stay
             if er_stay and er_stay > 0:
+                er_stay *= multiplier
                 otrm_time = vst_time + timedelta(minutes=er_stay)
             else:
-                otrm_time = vst_time + timedelta(minutes=180)  # Default 3 hours
+                otrm_time = vst_time + timedelta(minutes=180 * multiplier)
             otrm_times.append(otrm_time)
             
             # Generate admission time if applicable

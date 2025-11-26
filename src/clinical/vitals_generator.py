@@ -47,6 +47,10 @@ class VitalSignsGenerator:
             '5': 0.50   # 비응급 - 50% 측정
         }
         
+        # 상관관계 행렬 초기화
+        self.correlation_matrix = None
+        self._learn_correlation_matrix()
+        
         # 연령대별 정상 범위 (평균값 기준)
         self.age_normal_ranges = {
             # 수축기혈압 (mmHg)
@@ -174,6 +178,61 @@ class VitalSignsGenerator:
             }
         }
     
+    def _learn_correlation_matrix(self):
+        """실제 데이터에서 생체징후 간 상관관계 학습"""
+        self.logger.info("Learning vital signs correlation matrix from real data")
+        
+        try:
+            # 원본 데이터 테이블 확인
+            source_table = self.config.get('original.source_table', 'nedis_original.nedis2017')
+            
+            # 생체징후 데이터 조회 (유효한 값만)
+            query = f"""
+                SELECT 
+                    vst_sbp, vst_dbp, vst_per_pu, vst_per_br, vst_bdht, vst_oxy
+                FROM {source_table}
+                WHERE vst_sbp > 0 AND vst_dbp > 0 AND vst_per_pu > 0 
+                  AND vst_per_br > 0 AND vst_bdht > 0 AND vst_oxy > 0
+                LIMIT 50000
+            """
+            
+            df = self.db.fetch_dataframe(query)
+            
+            if len(df) > 100:
+                # 상관관계 행렬 계산
+                self.correlation_matrix = df.corr()
+                self.logger.info("Successfully learned correlation matrix")
+                self.logger.debug(f"Correlation matrix:\n{self.correlation_matrix}")
+            else:
+                self.logger.warning("Not enough data to learn correlations, using default")
+                self._set_default_correlations()
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to learn correlation matrix: {e}")
+            self._set_default_correlations()
+            
+    def _set_default_correlations(self):
+        """기본 상관관계 설정 (의학적 지식 기반)"""
+        # 기본적으로 독립적(Identity)이지만, SBP-DBP, PR-BT 등은 상관관계 설정
+        cols = ['vst_sbp', 'vst_dbp', 'vst_per_pu', 'vst_per_br', 'vst_bdht', 'vst_oxy']
+        n = len(cols)
+        corr = np.eye(n)
+        df_corr = pd.DataFrame(corr, index=cols, columns=cols)
+        
+        # SBP - DBP: 강한 양의 상관관계
+        df_corr.loc['vst_sbp', 'vst_dbp'] = 0.7
+        df_corr.loc['vst_dbp', 'vst_sbp'] = 0.7
+        
+        # PR - BT: 양의 상관관계 (발열 시 맥박 증가)
+        df_corr.loc['vst_per_pu', 'vst_bdht'] = 0.4
+        df_corr.loc['vst_bdht', 'vst_per_pu'] = 0.4
+        
+        # PR - SBP: 약한 양의 상관관계
+        df_corr.loc['vst_per_pu', 'vst_sbp'] = 0.2
+        df_corr.loc['vst_sbp', 'vst_per_pu'] = 0.2
+        
+        self.correlation_matrix = df_corr
+
     def generate_all_vital_signs(self, date_str: str) -> Dict[str, Any]:
         """
         특정 날짜의 모든 환자 생체징후 생성
@@ -247,7 +306,15 @@ class VitalSignsGenerator:
         ktas_level = patient['ktas_fstu']
         
         try:
-            # KTAS별 측정 확률 체크
+            # 1. 상관관계가 고려된 전체 생체징후 생성
+            correlated_vitals = self._generate_correlated_vitals(pat_age_gr, ktas_level)
+            
+            if not correlated_vitals:
+                # 실패 시 기존 방식(독립 생성)으로 폴백하거나 None 반환
+                # 여기서는 간단히 None 반환 (로그는 _generate_correlated_vitals에서 남김)
+                return None
+
+            # 2. KTAS별 측정 확률 체크 및 적용
             measurement_prob = self.ktas_measurement_probability.get(ktas_level, 0.7)
             
             vitals = {
@@ -260,26 +327,104 @@ class VitalSignsGenerator:
                 'vst_oxy': -1
             }
             
-            # 각 생체징후별로 측정 여부 및 값 결정
+            # 혈압
             if np.random.random() < measurement_prob:
-                vitals.update(self._generate_blood_pressure(pat_age_gr, ktas_level))
+                vitals['vst_sbp'] = int(round(correlated_vitals['vst_sbp']))
+                vitals['vst_dbp'] = int(round(correlated_vitals['vst_dbp']))
                 
+            # 맥박
             if np.random.random() < measurement_prob:
-                vitals['vst_per_pu'] = self._generate_pulse_rate(pat_age_gr, ktas_level)
+                vitals['vst_per_pu'] = int(round(correlated_vitals['vst_per_pu']))
                 
-            if np.random.random() < measurement_prob * 0.9:  # 호흡수는 약간 낮은 측정률
-                vitals['vst_per_br'] = self._generate_respiration_rate(pat_age_gr, ktas_level)
+            # 호흡
+            if np.random.random() < measurement_prob * 0.9:
+                vitals['vst_per_br'] = int(round(correlated_vitals['vst_per_br']))
                 
-            if np.random.random() < measurement_prob * 0.8:  # 체온은 더 낮은 측정률
-                vitals['vst_bdht'] = self._generate_temperature(ktas_level)
+            # 체온
+            if np.random.random() < measurement_prob * 0.8:
+                vitals['vst_bdht'] = round(correlated_vitals['vst_bdht'], 1)
                 
-            if np.random.random() < measurement_prob * 0.7:  # 산소포화도는 중증 환자 위주
-                vitals['vst_oxy'] = self._generate_oxygen_saturation(ktas_level)
+            # 산소포화도
+            if np.random.random() < measurement_prob * 0.7:
+                vitals['vst_oxy'] = int(round(correlated_vitals['vst_oxy']))
             
             return vitals
             
         except Exception as e:
             self.logger.warning(f"Vital signs generation failed for patient {index_key}: {e}")
+            return None
+            
+    def _generate_correlated_vitals(self, pat_age_gr: str, ktas_level: str) -> Dict[str, float]:
+        """
+        상관관계가 고려된 생체징후 생성 (Gaussian Copula)
+        1. 다변량 정규분포에서 샘플링 (Z-score)
+        2. 각 변수의 주변분포(Marginal Distribution)로 변환
+        """
+        try:
+            # 1. 다변량 정규분포 샘플링
+            if self.correlation_matrix is None:
+                self._set_default_correlations()
+                
+            mean = np.zeros(len(self.correlation_matrix))
+            cov = self.correlation_matrix.values
+            
+            # Z-score 샘플링
+            z_scores = np.random.multivariate_normal(mean, cov)
+            
+            # 2. 각 변수별 값 변환 (Z-score -> Percentile -> Value)
+            vitals = {}
+            cols = self.correlation_matrix.columns
+            
+            for i, col in enumerate(cols):
+                z = z_scores[i]
+                percentile = stats.norm.cdf(z)
+                
+                # 각 변수의 주변분포 파라미터 가져오기
+                if col == 'vst_sbp':
+                    params = self.age_normal_ranges['sbp'].get(pat_age_gr, self.age_normal_ranges['sbp']['30'])
+                    val = stats.norm.ppf(percentile, loc=params['mean'], scale=params['std'])
+                elif col == 'vst_dbp':
+                    # DBP는 SBP와 강한 상관관계가 이미 반영됨
+                    params = self.age_normal_ranges['dbp'].get(pat_age_gr, self.age_normal_ranges['dbp']['30'])
+                    val = stats.norm.ppf(percentile, loc=params['mean'], scale=params['std'])
+                elif col == 'vst_per_pu':
+                    params = self.age_normal_ranges['pulse'].get(pat_age_gr, self.age_normal_ranges['pulse']['30'])
+                    val = stats.norm.ppf(percentile, loc=params['mean'], scale=params['std'])
+                elif col == 'vst_per_br':
+                    params = self.age_normal_ranges['respiration'].get(pat_age_gr, self.age_normal_ranges['respiration']['30'])
+                    val = stats.norm.ppf(percentile, loc=params['mean'], scale=params['std'])
+                elif col == 'vst_bdht':
+                    params = self.age_normal_ranges['temperature']['normal']
+                    val = stats.norm.ppf(percentile, loc=params['mean'], scale=params['std'])
+                elif col == 'vst_oxy':
+                    params = self.age_normal_ranges['oxygen_saturation']['normal']
+                    # SpO2는 상한이 있으므로 절단된 정규분포 느낌으로 처리하거나, 단순 매핑 후 클리핑
+                    val = stats.norm.ppf(percentile, loc=params['mean'], scale=params['std'])
+                else:
+                    val = 0
+                
+                vitals[col] = val
+            
+            # 3. KTAS별 이상 패턴 적용 (상관관계 유지하면서 Shift)
+            # 중증 환자의 경우 전체적으로 분포를 이동시킴
+            abnormal_patterns = self.ktas_abnormal_patterns.get(ktas_level, self.ktas_abnormal_patterns['3'])
+            
+            # 쇼크 (저혈압 + 빈맥)
+            if np.random.random() < abnormal_patterns.get('hypotension_prob', 0) * 0.5: # 동시 발생 확률
+                vitals['vst_sbp'] -= 30
+                vitals['vst_dbp'] -= 20
+                vitals['vst_per_pu'] += 30
+            
+            # 발열 (고체온 + 빈맥 + 빈호흡)
+            if np.random.random() < abnormal_patterns.get('fever_prob', 0):
+                vitals['vst_bdht'] += 2.0
+                vitals['vst_per_pu'] += 20
+                vitals['vst_per_br'] += 4
+                
+            return vitals
+            
+        except Exception as e:
+            self.logger.warning(f"Correlated vitals generation failed: {e}")
             return None
     
     def _generate_blood_pressure(self, pat_age_gr: str, ktas_level: str) -> Dict[str, int]:
