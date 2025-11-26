@@ -1,0 +1,49 @@
+api:
+  enable_cors: true
+  enable_graphql: true
+  enable_websocket: true
+  host: 0.0.0.0
+  port: 8000
+  rate_limit: 100
+cache_ttl: 3600
+databases:
+  original:
+    path: nedis_original.duckdb
+    schema: nedis_original
+  synthetic:
+    path: nedis_synthetic.duckdb
+    schema: nedis_synthetic
+enable_caching: true
+patterns:
+  confidence_threshold: 0.95
+  hierarchical_fallback: true
+  min_sample_size: 10
+  pattern_cache_enabled: true
+  time_gap_analysis: true
+performance:
+  enable_profiling: false
+  max_concurrent_validations: 3
+  memory_limit_mb: 2048
+  timeout_seconds: 300
+sample_size: 50000
+security:
+  differential_privacy_epsilon: 1.0
+  enable_audit_logging: true
+  enable_pii_masking: true
+  enable_privacy_protection: true
+significance_level: 0.05
+statistics:
+  chi2_threshold: 0.05
+  correlation_threshold: 0.1
+  ks_threshold: 0.05
+  min_sample_size: 10
+  wasserstein_threshold: 0.1
+visualization:
+  chart_theme: default
+  dashboard_port: 8050
+  enable_dashboard: true
+  interactive_charts: true
+  report_formats:
+  - html
+  - pdf
+  - json

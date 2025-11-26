@@ -1,0 +1,99 @@
+# NEDIS Synthetic Data Validation Configuration
+# This file contains all configuration settings for the validation system
+
+# 검증 설정
+validation:
+  significance_level: 0.05
+  sample_size: 50000
+  enable_caching: true
+  cache_ttl: 3600
+
+# 통계적 검증 설정
+statistics:
+  ks_threshold: 0.05
+  chi2_threshold: 0.05
+  correlation_threshold: 0.1
+  wasserstein_threshold: 0.1
+  min_sample_size: 10
+
+# 패턴 분석 설정
+patterns:
+  min_sample_size: 10
+  confidence_threshold: 0.95
+  hierarchical_fallback: true
+  time_gap_analysis: true
+  pattern_cache_enabled: true
+
+# 시각화 설정
+visualization:
+  enable_dashboard: true
+  dashboard_port: 8050
+  report_formats: ["html", "pdf", "json"]
+  chart_theme: "default"
+  interactive_charts: true
+
+# API 설정
+api:
+  host: "0.0.0.0"
+  port: 8000
+  enable_cors: true
+  rate_limit: 100
+  enable_graphql: true
+  enable_websocket: true
+
+# 데이터베이스 설정
+databases:
+  original:
+    path: "nedis_data.duckdb"
+    schema: "main"
+    table: "nedis2017"
+  synthetic:
+    path: "nedis_synth_2017.duckdb"
+    schema: "nedis_synthetic"
+    table: "clinical_records"
+
+# 보안 설정
+security:
+  enable_privacy_protection: true
+  differential_privacy_epsilon: 1.0
+  enable_pii_masking: true
+  enable_audit_logging: true
+
+# 성능 설정
+performance:
+  max_concurrent_validations: 3
+  timeout_seconds: 300
+  memory_limit_mb: 2048
+  enable_profiling: false
+
+# 로깅 설정
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_dir: "logs"
+  max_file_size_mb: 10
+  backup_count: 5
+
+# 고급 설정
+advanced:
+  # 병렬 처리 설정
+  parallel_processing: true
+  num_workers: 4
+
+  # 메모리 최적화
+  memory_optimization: true
+  chunk_size: 10000
+
+  # 캐시 설정
+  cache:
+    enabled: true
+    max_size_mb: 100
+    compression: true
+
+  # 품질 지표
+  quality_metrics:
+    enabled: true
+    thresholds:
+      statistical_similarity: 0.7
+      pattern_match: 0.8
+      clinical_accuracy: 0.85
