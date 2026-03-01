@@ -204,6 +204,7 @@ class PatternAnalyzer:
             ("regional_patterns", self.analyze_regional_patterns),
             ("demographic_patterns", self.analyze_demographic_patterns),
             ("temporal_patterns", self.analyze_temporal_patterns),
+            ("temporal_conditional_patterns", self.analyze_temporal_conditional_patterns),
             ("visit_method_patterns", self.analyze_visit_method_patterns),
             ("chief_complaint_patterns", self.analyze_chief_complaint_patterns),
             ("department_patterns", self.analyze_department_patterns),
@@ -691,6 +692,159 @@ class PatternAnalyzer:
             'hourly_pattern': hourly_pattern,
             'analysis_method': 'temporal_distributions'
         }
+
+    def analyze_temporal_conditional_patterns(self) -> Dict[str, Any]:
+        """조건부 시간 패턴 분석
+
+        학습되는 주요 분포:
+        - month × hour
+        - dow × hour
+        - ktas_fstu × hour
+        - pat_age_gr × ktas_fstu × hour
+        - pat_age_gr × pat_sex × ktas_fstu × hour
+        - month × dow × hour
+        - 월/요일 결합 + 주된 임상 상태 분해
+        """
+        self.logger.info("Analyzing conditional temporal patterns for joint constraints")
+
+        query = """
+            SELECT
+                COALESCE(pat_age_gr, 'unknown') AS pat_age_gr,
+                COALESCE(pat_sex, 'unknown') AS pat_sex,
+                COALESCE(ktas_fstu, 'unknown') AS ktas_fstu,
+                EXTRACT(MONTH FROM STRPTIME(vst_dt, '%Y%m%d')) AS month,
+                EXTRACT(DOW FROM STRPTIME(vst_dt, '%Y%m%d')) AS dow,
+                EXTRACT(HOUR FROM STRPTIME(vst_tm, '%H%M')) AS hour,
+                COUNT(*) AS count
+            FROM {src}
+            WHERE vst_dt IS NOT NULL
+              AND vst_tm IS NOT NULL
+              AND vst_tm != ''
+              AND pat_age_gr IS NOT NULL
+              AND pat_sex IS NOT NULL
+              AND ktas_fstu IS NOT NULL
+            GROUP BY
+                pat_age_gr,
+                pat_sex,
+                ktas_fstu,
+                month,
+                dow,
+                hour
+            HAVING COUNT(*) >= {min_samples}
+        """.format(src=self.src_table, min_samples=self.analysis_config.min_sample_size)
+
+        cond_data = self.db.fetch_dataframe(query)
+
+        if cond_data.empty:
+            self.logger.warning("Conditional temporal query returned empty result")
+            return {
+                'patterns': {},
+                'analysis_method': 'conditional_temporal_distributions',
+            }
+
+        # 날짜 기반 조건 분포
+        month_hour_patterns = self._build_conditional_distribution(
+            cond_data,
+            key_cols=['month'],
+            target_col='hour',
+        )
+        dow_hour_patterns = self._build_conditional_distribution(
+            cond_data,
+            key_cols=['dow'],
+            target_col='hour',
+        )
+        month_dow_hour_patterns = self._build_conditional_distribution(
+            cond_data,
+            key_cols=['month', 'dow'],
+            target_col='hour',
+        )
+
+        # 임상 연관 조건 분포
+        ktas_hour_patterns = self._build_conditional_distribution(
+            cond_data,
+            key_cols=['ktas_fstu'],
+            target_col='hour',
+        )
+        age_hour_patterns = self._build_conditional_distribution(
+            cond_data,
+            key_cols=['pat_age_gr'],
+            target_col='hour',
+        )
+        age_sex_hour_patterns = self._build_conditional_distribution(
+            cond_data,
+            key_cols=['pat_age_gr', 'pat_sex'],
+            target_col='hour',
+        )
+        ktas_age_hour_patterns = self._build_conditional_distribution(
+            cond_data,
+            key_cols=['ktas_fstu', 'pat_age_gr'],
+            target_col='hour',
+        )
+        age_sex_ktas_hour_patterns = self._build_conditional_distribution(
+            cond_data,
+            key_cols=['pat_age_gr', 'pat_sex', 'ktas_fstu'],
+            target_col='hour',
+        )
+
+        return {
+            'patterns': {
+                'month_hour': month_hour_patterns,
+                'dow_hour': dow_hour_patterns,
+                'month_dow_hour': month_dow_hour_patterns,
+                'ktas_hour': ktas_hour_patterns,
+                'age_hour': age_hour_patterns,
+                'age_sex_hour': age_sex_hour_patterns,
+                'ktas_age_hour': ktas_age_hour_patterns,
+                'age_sex_ktas_hour': age_sex_ktas_hour_patterns,
+            },
+            'analysis_method': 'conditional_temporal_distributions',
+            'min_sample_size': self.analysis_config.min_sample_size,
+        }
+
+    def _build_conditional_distribution(
+        self,
+        df: pd.DataFrame,
+        key_cols: List[str],
+        target_col: str,
+    ) -> Dict[str, Any]:
+        """조건부 분포를 학습해 확률 맵으로 변환."""
+        distributions: Dict[str, Any] = {}
+        if df.empty:
+            return distributions
+
+        group_cols = key_cols + [target_col]
+        counts = (
+            df[group_cols]
+            .rename(columns={target_col: 'hour'})
+            .groupby(key_cols + ['hour'], dropna=False)['hour']
+            .count()
+            .rename('count')
+            .reset_index()
+        )
+
+        for keys, grouped in counts.groupby(key_cols, dropna=False):
+            if not isinstance(keys, tuple):
+                keys = (keys,)
+            total_count = int(grouped['count'].sum())
+            if total_count <= 0:
+                continue
+
+            pattern = {}
+            for _, row in grouped.iterrows():
+                hour = int(row['hour'])
+                count = int(row['count'])
+                pattern[hour] = {
+                    'count': count,
+                    'probability': count / total_count,
+                }
+
+            key = '|'.join([str(k) for k in keys])
+            distributions[key] = {
+                'total_count': total_count,
+                'patterns': pattern,
+            }
+
+        return distributions
 
     def analyze_visit_method_patterns(self) -> Dict[str, Any]:
         """연령대별 내원수단 분포 P(vst_meth | pat_age_gr)"""

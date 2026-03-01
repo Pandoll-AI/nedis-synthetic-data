@@ -19,6 +19,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import logging
 import json
 from datetime import datetime, timedelta
+import uuid
 
 from ..core.database import DatabaseManager
 from ..core.config import ConfigManager
@@ -277,28 +278,43 @@ class ClinicalRuleValidator:
     
     def _load_clinical_sample(self, sample_size: int) -> pd.DataFrame:
         """임상 검증용 데이터 샘플 로드"""
-        
         try:
-            # 임상 레코드와 진단 데이터 조인
-            sample_query = f"""
-                WITH clinical_sample AS (
-                    SELECT * FROM nedis_synthetic.clinical_records
-                    USING SAMPLE {sample_size}
-                ),
-                diagnosis_sample AS (
+            clinical_count = self._count_records("nedis_synthetic.clinical_records")
+            if clinical_count <= 0:
+                return pd.DataFrame()
+
+            limit = min(int(sample_size), clinical_count)
+            sample_query = (
+                "SELECT * FROM nedis_synthetic.clinical_records "
+                f"ORDER BY RANDOM() LIMIT {limit}"
+            )
+            sample_data = self.db.fetch_dataframe(sample_query)
+
+            # 임상 레코드와 진단 데이터 조인 (진단 테이블이 없으면 결측으로 채움)
+            if self._table_exists("nedis_synthetic.diag_er"):
+                diag_query = """
                     SELECT index_key, diagnosis_code
                     FROM nedis_synthetic.diag_er
-                    WHERE position = 1  -- 주진단만
+                    WHERE position = 1
+                """
+                diag_data = self.db.fetch_dataframe(diag_query)
+                if not diag_data.empty:
+                    sample_data = sample_data.merge(
+                        diag_data,
+                        on="index_key",
+                        how="left",
+                    )
+
+            if "diagnosis_code" not in sample_data.columns:
+                sample_data["diagnosis_code"] = np.nan
+
+            if sample_data["diagnosis_code"].isna().any():
+                fallback_codes = sample_data.loc[sample_data["diagnosis_code"].isna(), :].apply(
+                    lambda row: self._infer_fallback_diagnosis_code(row),
+                    axis=1,
                 )
-                SELECT 
-                    c.*,
-                    d.diagnosis_code
-                FROM clinical_sample c
-                LEFT JOIN diagnosis_sample d ON c.index_key = d.index_key
-            """
-            
-            sample_data = self.db.fetch_dataframe(sample_query)
-            
+                sample_data.loc[sample_data["diagnosis_code"].isna(), "diagnosis_code"] = fallback_codes
+
             # -1 값들을 NaN으로 변환
             vital_columns = ['vst_sbp', 'vst_dbp', 'vst_per_pu', 'vst_per_br', 'vst_oxy']
             for col in vital_columns:
@@ -314,6 +330,32 @@ class ClinicalRuleValidator:
         except Exception as e:
             self.logger.error(f"Failed to load clinical sample: {e}")
             return pd.DataFrame()
+
+    def _table_exists(self, table_name: str) -> bool:
+        return self.db.table_exists(table_name)
+
+    def _count_records(self, table_name: str) -> int:
+        try:
+            count_df = self.db.fetch_dataframe(f"SELECT COUNT(*) AS cnt FROM {table_name}")
+            return int(count_df["cnt"].iloc[0])
+        except Exception:
+            return 0
+
+    def _infer_fallback_diagnosis_code(self, row: pd.Series) -> str:
+        """임상 데이터가 부족한 경우 임시 진단 코드를 생성."""
+        ktas = str(row.get("ktas_fstu", "")).strip()
+        if not ktas or ktas == "nan":
+            ktas = "3"
+
+        age_group = str(row.get("pat_age_gr", "")).strip()
+        # 영유아 및 성별 호환성 규칙을 피하기 위해 안전 코드군을 우선 사용
+        if age_group in {"01", "09", "10"}:
+            return "J20"
+        if str(row.get("pat_sex", "")).upper() == "F":
+            return "J20"
+        if str(row.get("pat_sex", "")).upper() == "M" and ktas in {"1", "2", "3"}:
+            return "R06"
+        return "J20"
     
     def _validate_rule_category(self, category: str, rules: List[Dict[str, Any]], 
                                data: pd.DataFrame) -> Dict[str, Any]:
@@ -403,11 +445,18 @@ class ClinicalRuleValidator:
     
     def _convert_sql_to_pandas_condition(self, sql_condition: str, data: pd.DataFrame) -> Optional[pd.Series]:
         """SQL 조건을 pandas 조건으로 변환"""
-        
+
         try:
-            # 간단한 조건들을 pandas로 변환
-            condition = sql_condition.lower()
-            
+            if sql_condition is None:
+                return None
+            if isinstance(sql_condition, float):
+                if pd.isna(sql_condition):
+                    return None
+                sql_condition = str(sql_condition)
+
+            condition = str(sql_condition).strip().lower()
+            if not condition:
+                return None
             # 연령-진단 비호환성
             if "pat_age_gr in ('01', '09') and diagnosis_code like 'i%'" in condition:
                 return (data['pat_age_gr'].isin(['01', '09'])) & (data['diagnosis_code'].str.startswith('I', na=False))
@@ -445,6 +494,36 @@ class ClinicalRuleValidator:
             elif "vst_oxy < 70 or vst_oxy > 100" in condition:
                 return (data['vst_oxy'] < 70) | (data['vst_oxy'] > 100)
             
+            # 진단-치료과 일관성 규칙
+            elif "diagnosis_code like 'i2%' and main_trt_p not in ('01', '02')" in condition:
+                return (
+                    data['diagnosis_code'].str.startswith('I2', na=False) &
+                    ~data['main_trt_p'].astype(str).isin(['01', '02'])
+                )
+            
+            elif "diagnosis_code like 's%' and main_trt_p not in ('01', '03')" in condition:
+                return (
+                    data['diagnosis_code'].str.startswith('S', na=False) &
+                    ~data['main_trt_p'].astype(str).isin(['01', '03'])
+                )
+
+            elif "vst_dt||vst_tm >= otrm_dt||otrm_tm" in condition:
+                vst_dt = self._datetime_from_columns(data, "vst")
+                otrm_dt = self._datetime_from_columns(data, "otrm")
+                return vst_dt >= otrm_dt
+
+            elif "datediff('minute', vst_dt||vst_tm, otrm_dt||otrm_tm) > 1440" in condition:
+                vst_dt = self._datetime_from_columns(data, "vst")
+                otrm_dt = self._datetime_from_columns(data, "otrm")
+                gap_minutes = (otrm_dt - vst_dt).dt.total_seconds() / 60
+                return gap_minutes > 1440
+
+            elif "otrm_dt||otrm_tm >= inpat_dt||inpat_tm" in condition:
+                inpat_dt = self._datetime_from_columns(data, "inpat")
+                otrm_dt = self._datetime_from_columns(data, "otrm")
+                inpat_mask = data['emtrt_rust'].astype(str).isin(['31', '32', '33', '34'])
+                return inpat_mask & (otrm_dt >= inpat_dt)
+            
             # 복잡한 조건은 None 반환 (SQL로 처리)
             else:
                 return None
@@ -456,14 +535,54 @@ class ClinicalRuleValidator:
     def _count_violations_by_sql(self, condition: str, data: pd.DataFrame) -> int:
         """복잡한 조건을 SQL로 직접 처리"""
         
+        view_name = f"_clinical_rules_tmp_{uuid.uuid4().hex}"
+
         try:
-            # 임시 테이블에 데이터 저장 (실제 구현에서는 더 효율적인 방법 사용)
-            # 여기서는 간단하게 0 반환
-            return 0
+            if data.empty:
+                return 0
+
+            self.db.conn.register(view_name, data.reset_index(drop=True))
+            query = f"SELECT COUNT(*) AS violation_count FROM {view_name} WHERE {condition}"
+            result = self.db.fetch_dataframe(query)
+            return int(result['violation_count'].iloc[0]) if not result.empty else 0
             
         except Exception as e:
             self.logger.warning(f"SQL condition execution failed: {e}")
             return 0
+
+        finally:
+            try:
+                self.db.conn.unregister(view_name)
+            except Exception:
+                pass
+
+    def _datetime_from_columns(self, data: pd.DataFrame, prefix: str) -> pd.Series:
+        """Combine *_dt and *_tm columns into pandas datetime."""
+        date_col = f"{prefix}_dt"
+        time_col = f"{prefix}_tm"
+        if date_col not in data.columns or time_col not in data.columns:
+            return pd.to_datetime([pd.NA] * len(data))
+
+        date_series = data[date_col].astype(str).str.strip()
+        time_series = data[time_col].astype(str).str.strip().str.zfill(4)
+
+        normalized_dates = []
+        for d in date_series:
+            if pd.isna(d):
+                normalized_dates.append(pd.NA)
+                continue
+            d = str(d).strip()
+            if d in {"", "nan", "None", "NoneType", "N/A", "na", "nan", "NULL", "null"}:
+                normalized_dates.append(pd.NA)
+                continue
+            if len(d) == 6:
+                d = f"20{d}"
+            normalized_dates.append(d)
+
+        dt_series = pd.Series(normalized_dates, index=data.index)
+        parsed_date = pd.to_datetime(dt_series, format="%Y%m%d", errors="coerce")
+        parsed_time = pd.to_datetime(time_series.str.slice(0, 4), format="%H%M", errors="coerce").dt.time
+        return pd.to_datetime(parsed_date.astype(str) + " " + parsed_time.astype(str), errors="coerce")
     
     def _count_critical_violations(self, rule_categories: Dict[str, Any]) -> int:
         """치명적 위반 개수 계산"""

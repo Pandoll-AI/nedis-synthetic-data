@@ -25,6 +25,10 @@ class TemporalConfig:
     preserve_weekly_pattern: bool = True
     preserve_holiday_effects: bool = True
     time_resolution: str = 'hourly'  # 'hourly' or 'daily'
+    enable_conditional_hour_patterns: bool = True
+    conditional_context_min_count: int = 30
+    conditional_global_mix_weight: float = 0.20
+    conditional_smoothing_alpha: float = 0.02
 
 
 class TemporalPatternAssigner:
@@ -250,13 +254,28 @@ class TemporalPatternAssigner:
         # 동적 패턴에서 시간별 분포 추출
         temporal_data = self._temporal_patterns.get('temporal_patterns', {})
         hourly_pattern = temporal_data.get('hourly_pattern', {})
+        conditional_patterns = (
+            self._temporal_patterns
+            .get('temporal_conditional_patterns', {})
+            .get('patterns', {})
+        )
         
-        # 날짜별로 그룹화하여 처리
-        time_assignments = np.empty(len(result_df), dtype='object')
-        
-        for date_str, group_indices in result_df.groupby('vst_dt').groups.items():
-            if hourly_pattern:
-                # 동적 패턴 사용
+        if (
+            temporal_config.enable_conditional_hour_patterns
+            and conditional_patterns
+            and (hourly_pattern or conditional_patterns)
+        ):
+            result_df = self._assign_conditional_hour_patterns(
+                result_df=result_df,
+                hourly_pattern=hourly_pattern,
+                conditional_patterns=conditional_patterns,
+                temporal_config=temporal_config,
+            )
+        elif hourly_pattern:
+            # 날짜별로 그룹화하여 처리
+            time_assignments = np.empty(len(result_df), dtype='object')
+            
+            for _, group_indices in result_df.groupby('vst_dt').groups.items():
                 hours = list(hourly_pattern.keys())
                 probabilities = [hourly_pattern[h]['probability'] for h in hours]
                 
@@ -276,14 +295,158 @@ class TemporalPatternAssigner:
                 
                 # 시간 문자열 생성
                 time_strings = [f"{h:02d}{m:02d}" for h, m in zip(chosen_hours, chosen_minutes)]
-                time_assignments[group_indices] = time_strings
-            else:
-                # 기본 시간 분포 사용
-                default_times = self._generate_random_times(len(group_indices))
-                time_assignments[group_indices] = default_times
+                time_assignments[list(group_indices)] = time_strings
+            
+            result_df['vst_tm'] = time_assignments
+        else:
+            # 기본 시간 분포 사용
+            result_df['vst_tm'] = self._generate_random_times(len(result_df))
         
-        result_df['vst_tm'] = time_assignments
         return result_df
+
+    def _assign_conditional_hour_patterns(
+        self,
+        result_df: pd.DataFrame,
+        hourly_pattern: Dict[str, Any],
+        conditional_patterns: Dict[str, Any],
+        temporal_config: TemporalConfig,
+    ) -> pd.DataFrame:
+        """조건부 패턴 기반으로 시간대 할당."""
+        if len(result_df) == 0:
+            return result_df
+
+        date_obj = pd.to_datetime(result_df['vst_dt'].astype(str), format='%Y%m%d', errors='coerce')
+        result_df = result_df.copy()
+        result_df['_month'] = date_obj.dt.month.fillna(0).astype(int)
+        result_df['_dow'] = date_obj.dt.dayofweek.fillna(0).astype(int)
+        result_df['_age'] = result_df.get('pat_age_gr', pd.Series(['unknown'] * len(result_df), index=result_df.index)).fillna('unknown').astype(str)
+        result_df['_sex'] = result_df.get('pat_sex', pd.Series(['unknown'] * len(result_df), index=result_df.index)).fillna('unknown').astype(str)
+        result_df['_ktas'] = result_df.get(
+            'ktas_fstu',
+            result_df.get('ktas01', pd.Series(['3'] * len(result_df), index=result_df.index)),
+        ).fillna('unknown').astype(str)
+
+        global_probs = self._hour_distribution_to_prob_vector(hourly_pattern)
+        if global_probs is None:
+            global_probs = np.ones(24, dtype=float) / 24.0
+            if not conditional_patterns:
+                result_df['vst_tm'] = self._generate_random_times(len(result_df))
+                return result_df.drop(columns=['_month', '_dow', '_age', '_sex', '_ktas'])
+
+        result_df['vst_tm'] = ''
+        result_df['_hour_profile_source'] = ''
+
+        for _, group_indices in result_df.groupby(['_month', '_dow', '_age', '_sex', '_ktas']).groups.items():
+            idx = np.array(list(group_indices), dtype=int)
+            if len(idx) == 0:
+                continue
+
+            first = idx[0]
+            distribution, source = self._resolve_hour_distribution(
+                month=int(result_df.iloc[first]['_month']),
+                dow=int(result_df.iloc[first]['_dow']),
+                age_group=str(result_df.iloc[first]['_age']),
+                sex=str(result_df.iloc[first]['_sex']),
+                ktas=str(result_df.iloc[first]['_ktas']),
+                conditional_patterns=conditional_patterns,
+                global_probs=global_probs,
+                temporal_config=temporal_config,
+            )
+            result_df.loc[result_df.index[idx], '_hour_profile_source'] = source
+            chosen_hours = np.random.choice(np.arange(24), size=len(idx), p=distribution)
+            chosen_minutes = np.random.randint(0, 60, size=len(idx))
+            result_df.loc[result_df.index[idx], 'vst_tm'] = [
+                f"{int(h):02d}{int(m):02d}" for h, m in zip(chosen_hours, chosen_minutes)
+            ]
+
+        return result_df.drop(columns=['_month', '_dow', '_age', '_sex', '_ktas'])
+
+    def _resolve_hour_distribution(
+        self,
+        month: int,
+        dow: int,
+        age_group: str,
+        sex: str,
+        ktas: str,
+        conditional_patterns: Dict[str, Any],
+        global_probs: np.ndarray,
+        temporal_config: TemporalConfig,
+    ) -> Tuple[np.ndarray, str]:
+        """조건별 시간 분포를 계층적으로 결합하고 스무딩."""
+        candidate_specs = [
+            ('month_dow_hour', f"{month}|{dow}", 0.35),
+            ('month_hour', f"{month}", 0.25),
+            ('dow_hour', f"{dow}", 0.15),
+            ('age_sex_ktas_hour', f"{age_group}|{sex}|{ktas}", 0.10),
+            ('ktas_age_hour', f"{ktas}|{age_group}", 0.08),
+            ('ktas_hour', f"{ktas}", 0.07),
+            ('age_hour', f"{age_group}", 0.05),
+            ('age_sex_hour', f"{age_group}|{sex}", 0.05),
+        ]
+
+        weighted = np.zeros(24, dtype=float)
+        used_weight = 0.0
+        min_count = max(1, int(temporal_config.conditional_context_min_count))
+
+        for level, key, weight in candidate_specs:
+            level_patterns = conditional_patterns.get(level, {})
+            raw_entry = level_patterns.get(key)
+            if not isinstance(raw_entry, dict):
+                continue
+            if int(raw_entry.get('total_count', 0)) < min_count:
+                continue
+            probs = self._hour_distribution_to_prob_vector(raw_entry.get('patterns', {}))
+            if probs is None:
+                continue
+            weighted += probs * weight
+            used_weight += weight
+
+        if used_weight <= 0.0:
+            source = "fallback_global"
+            return self._smooth_hour_distribution(global_probs, temporal_config.conditional_smoothing_alpha), source
+
+        weighted = weighted / used_weight
+        blend_weight = float(temporal_config.conditional_global_mix_weight)
+        blend_weight = max(0.0, min(1.0, blend_weight))
+        blended = (1.0 - blend_weight) * weighted + blend_weight * global_probs
+        source = "conditional_blend"
+        return self._smooth_hour_distribution(blended, temporal_config.conditional_smoothing_alpha), source
+
+    @staticmethod
+    def _hour_distribution_to_prob_vector(pattern: Dict[str, Any]) -> Optional[np.ndarray]:
+        """패턴 맵을 24칸 확률 벡터로 변환."""
+        if not pattern:
+            return None
+
+        probs = np.zeros(24, dtype=float)
+        total = 0.0
+        for hour, payload in pattern.items():
+            try:
+                hour_int = int(hour)
+            except (TypeError, ValueError):
+                continue
+            if hour_int < 0 or hour_int > 23:
+                continue
+            value = payload.get('probability') if isinstance(payload, dict) else payload
+            try:
+                p = float(value)
+            except (TypeError, ValueError):
+                continue
+            probs[hour_int] = max(0.0, p)
+            total += probs[hour_int]
+        if total <= 0.0:
+            return None
+        return probs / total
+
+    @staticmethod
+    def _smooth_hour_distribution(probabilities: np.ndarray, alpha: float) -> np.ndarray:
+        """분포를 스무딩."""
+        alpha = max(0.0, min(1.0, float(alpha)))
+        if alpha <= 0.0:
+            return probabilities / max(float(probabilities.sum()), 1e-12)
+        base = np.ones(24, dtype=float) / 24.0
+        mixed = (1.0 - alpha) * probabilities + alpha * base
+        return mixed / max(float(mixed.sum()), 1e-12)
     
     def _generate_random_times(self, count: int) -> List[str]:
         """랜덤 시간 생성 (설정 기반 폴백 분포)"""
@@ -377,6 +540,11 @@ class TemporalPatternAssigner:
             result_df['hour'] = result_df['vst_tm'].str[:2].astype(int)
             hourly_distribution = result_df['hour'].value_counts(normalize=True).sort_index()
             validation_results['hourly_distribution'] = hourly_distribution.to_dict()
+            if '_hour_profile_source' in result_df.columns:
+                validation_results['conditional_hour_profile_usage'] = (
+                    result_df['_hour_profile_source'].value_counts().to_dict()
+                )
+                result_df = result_df.drop(columns=['_hour_profile_source'])
         
         # 총 일수와 평균 일별 방문자 수
         unique_dates = result_df['vst_dt'].nunique()

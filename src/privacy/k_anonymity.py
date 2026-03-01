@@ -58,6 +58,7 @@ class KAnonymityValidator:
         
         if not valid_qi:
             logger.warning("No valid quasi-identifiers found")
+            groups_size_distribution = dict([(len(df), 1)])
             return KAnonymityResult(
                 k_value=len(df),
                 min_group_size=len(df),
@@ -67,7 +68,7 @@ class KAnonymityValidator:
                 num_violations=0,
                 violation_records=[],
                 satisfied=True,
-                groups_distribution={len(df): 1}
+                groups_distribution=groups_size_distribution
             )
         
         # Create equivalence classes
@@ -81,7 +82,7 @@ class KAnonymityValidator:
         
         # Find violations
         violations = groups[groups['group_size'] < self.k_threshold]
-        num_violations = len(violations)
+        num_violations = int((groups['group_size'] == min_group_size).sum())
         
         # Get indices of violation records
         violation_records = []

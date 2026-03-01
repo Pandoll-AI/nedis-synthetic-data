@@ -59,6 +59,49 @@ validation:
   ks_test_threshold: 0.05
   chi2_test_threshold: 0.05
   correlation_threshold: 0.05
+  correlation_tolerance: 0.08
+  pipeline_component_weights:
+    clinical: 0.25
+    statistical: 0.35
+    temporal: 0.20
+    correlation: 0.15
+    capacity: 0.05
+  correlation_pairs:
+    - name: ktas_age
+      left: ktas_fstu
+      right: pat_age_gr
+      method: cramers_v
+      weight: 1.0
+    - name: ktas_sex
+      left: ktas_fstu
+      right: pat_sex
+      method: cramers_v
+      weight: 1.0
+    - name: age_hour
+      left: pat_age_gr
+      right: hour
+      method: auto
+      weight: 1.0
+    - name: sex_hour
+      left: pat_sex
+      right: hour
+      method: auto
+      weight: 0.8
+    - name: ktas_hour
+      left: ktas_fstu
+      right: hour
+      method: auto
+      weight: 1.0
+    - name: month_hour
+      left: month
+      right: hour
+      method: pearson
+      weight: 0.8
+    - name: month_dow
+      left: month
+      right: dow
+      method: pearson
+      weight: 0.6
 
 logging:
   level: "INFO"

@@ -49,6 +49,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Target DuckDB file to write synthetic tables (default: nedis_synth.duckdb)",
     )
     p.add_argument(
+        "--config-path",
+        default="config/generation_params.yaml",
+        help="Path to generation configuration YAML (default: config/generation_params.yaml)",
+    )
+    p.add_argument(
         "--source-database",
         default=None,
         help=(
@@ -86,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional random seed for reproducibility",
     )
+    p.add_argument(
+        "--quality-report-path",
+        default=None,
+        help="Optional JSON path to save per-run validation summary"
+    )
 
     # Temporal
     p.add_argument(
@@ -106,6 +116,30 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--preserve-seasonality", action="store_true", default=True, help="Preserve monthly seasonal patterns (default: on)")
     p.add_argument("--preserve-weekly-pattern", action="store_true", default=True, help="Preserve weekday patterns (default: on)")
     p.add_argument("--preserve-holiday-effects", action="store_true", default=True, help="Preserve holiday effects (default: on)")
+    p.add_argument(
+        "--disable-conditional-hour-patterns",
+        action="store_true",
+        default=False,
+        help="Disable conditional hour assignment and fallback to global hourly distribution",
+    )
+    p.add_argument(
+        "--conditional-context-min-count",
+        type=int,
+        default=30,
+        help="Minimum observations needed for a context to use a conditional hourly pattern (default: 30)",
+    )
+    p.add_argument(
+        "--conditional-global-mix-weight",
+        type=float,
+        default=0.2,
+        help="Blend weight of global hourly distribution in conditional hour assignment (0~1, default: 0.2)",
+    )
+    p.add_argument(
+        "--conditional-smoothing-alpha",
+        type=float,
+        default=0.02,
+        help="Smoothing weight for backed-off hour distributions (0~1, default: 0.02)",
+    )
 
     # Capacity (post-processing)
     p.add_argument(
@@ -145,4 +179,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

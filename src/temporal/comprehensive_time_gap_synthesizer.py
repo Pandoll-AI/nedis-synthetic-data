@@ -6,7 +6,7 @@ Handles all non-overlapping time gaps between medical events
 import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 import json
 from pathlib import Path
 from scipy import stats
@@ -277,7 +277,7 @@ class ComprehensiveTimeGapSynthesizer:
         self,
         ktas_levels: np.ndarray,
         treatment_results: np.ndarray,
-        base_datetime: Optional[datetime] = None
+        base_datetime: Optional[Any] = None
     ) -> pd.DataFrame:
         """
         Generate ALL datetime columns based on comprehensive gap patterns
@@ -291,16 +291,15 @@ class ComprehensiveTimeGapSynthesizer:
         """
         if self._time_patterns is None:
             self.analyze_all_time_patterns()
-        
+
         n_patients = len(ktas_levels)
+        base_arrivals = self._fill_missing_arrivals(
+            self._coerce_base_arrivals(base_datetime, n_patients)
+        )
         
         # Initialize result dataframe
         result_df = pd.DataFrame()
-        
-        # Generate base times if not provided
-        if base_datetime is None:
-            base_datetime = datetime(2017, 1, 1)
-        
+
         # Generate incident times (ocur) - some time before arrival
         ocur_times = []
         vst_times = []
@@ -309,63 +308,61 @@ class ComprehensiveTimeGapSynthesizer:
         otpat_times = []
         
         for i in range(n_patients):
-            ktas = str(int(ktas_levels[i]))
-            result = str(treatment_results[i]) if pd.notna(treatment_results[i]) else None
+            ktas = self._normalize_code(ktas_levels[i], allow_none=True)
+            result = self._normalize_code(treatment_results[i], allow_none=True)
             
             # Get distributions for this patient profile
             dist_params = self._get_hierarchical_distribution(ktas, result)
             
-            # Generate arrival time (with some randomness)
-            hours_offset = np.random.uniform(0, 24*365)  # Random time in year
-            vst_time = base_datetime + timedelta(hours=hours_offset)
+            vst_time = base_arrivals[i]
             vst_times.append(vst_time)
             
             # Generate incident time (before arrival)
-            incident_gap = self._sample_from_distribution(
+            incident_gap = self._sample_gap_minutes(
                 dist_params.get('incident_to_arrival'),
-                default_mean=60, default_std=30
+                gap_name='incident_to_arrival',
+                default_mean=45,
+                default_std=20,
+                ktas=ktas
             )
-            if incident_gap and incident_gap > 0:
-                ocur_time = vst_time - timedelta(minutes=incident_gap)
-            else:
-                ocur_time = vst_time - timedelta(minutes=30)  # Default 30 min before
+            ocur_time = vst_time - timedelta(minutes=incident_gap)
             ocur_times.append(ocur_time)
             
             # Generate discharge time (after arrival)
-            er_stay = self._sample_from_distribution(
+            er_stay = self._sample_gap_minutes(
                 dist_params.get('er_stay'),
-                default_mean=180, default_std=60
+                gap_name='er_stay',
+                default_mean=180,
+                default_std=60,
+                ktas=ktas
             )
-            if er_stay and er_stay > 0:
-                otrm_time = vst_time + timedelta(minutes=er_stay)
-            else:
-                otrm_time = vst_time + timedelta(minutes=180)  # Default 3 hours
+            otrm_time = vst_time + timedelta(minutes=er_stay)
             otrm_times.append(otrm_time)
             
             # Generate admission time if applicable
             if result in ['31', '32', '33', '34']:  # Admission codes
-                admit_gap = self._sample_from_distribution(
+                admit_gap = self._sample_gap_minutes(
                     dist_params.get('discharge_to_admission'),
-                    default_mean=60, default_std=30
+                    gap_name='discharge_to_admission',
+                    default_mean=60,
+                    default_std=30,
+                    ktas=ktas
                 )
-                if admit_gap and admit_gap > 0:
-                    inpat_time = otrm_time + timedelta(minutes=admit_gap)
-                else:
-                    inpat_time = otrm_time + timedelta(minutes=60)
+                inpat_time = otrm_time + timedelta(minutes=admit_gap)
                 inpat_times.append(inpat_time)
             else:
                 inpat_times.append(None)
             
             # Generate outpatient time if applicable
             if result in ['21', '22']:  # Outpatient codes
-                outpat_gap = self._sample_from_distribution(
+                outpat_gap = self._sample_gap_minutes(
                     dist_params.get('discharge_to_outpatient'),
-                    default_mean=1440, default_std=720  # Default next day
+                    gap_name='discharge_to_outpatient',
+                    default_mean=1440,
+                    default_std=720,
+                    ktas=ktas  # Default next day
                 )
-                if outpat_gap and outpat_gap > 0:
-                    otpat_time = otrm_time + timedelta(minutes=outpat_gap)
-                else:
-                    otpat_time = otrm_time + timedelta(days=1)
+                otpat_time = otrm_time + timedelta(minutes=outpat_gap)
                 otpat_times.append(otpat_time)
             else:
                 otpat_times.append(None)
@@ -384,6 +381,74 @@ class ComprehensiveTimeGapSynthesizer:
         
         logger.info(f"Generated all datetime columns for {n_patients} patients")
         return result_df
+
+    def _normalize_code(self, value: Any, allow_none: bool = False) -> Optional[str]:
+        """일관된 문자열 코드로 정규화"""
+        if pd.isna(value):
+            return None if allow_none else "0"
+
+        code = str(value).strip()
+        if not code:
+            return None if allow_none else "0"
+
+        if code.lower() in {"nan", "none", "null"}:
+            return None if allow_none else "0"
+
+        if "." in code:
+            code = code.split(".")[0]
+        if code.endswith(".0"):
+            code = code[:-2]
+
+        return code
+
+    def _coerce_base_arrivals(
+        self,
+        base_datetime: Optional[Any],
+        n_patients: int
+    ) -> List[Optional[datetime]]:
+        """입력된 기본 도착 시각을 NEDIS 생성용 datetime 리스트로 정규화"""
+        if base_datetime is None:
+            return [None] * n_patients
+
+        if isinstance(base_datetime, (datetime, pd.Timestamp)):
+            return [pd.Timestamp(base_datetime).to_pydatetime()] * n_patients
+
+        try:
+            base_series = pd.to_datetime(base_datetime, errors='coerce')
+            if isinstance(base_series, pd.Series):
+                normalized = base_series.reset_index(drop=True)
+            else:
+                normalized = pd.Series(base_series).reset_index(drop=True)
+        except Exception:
+            normalized = pd.Series([pd.NaT] * n_patients)
+
+        if len(normalized) < n_patients:
+            normalized = normalized.reindex(range(n_patients))
+        elif len(normalized) > n_patients:
+            normalized = normalized.iloc[:n_patients]
+
+        return [v.to_pydatetime() if pd.notna(v) else None for v in normalized]
+
+    def _fill_missing_arrivals(self, base_arrivals: List[Optional[datetime]]) -> List[datetime]:
+        """결측 도착 시각을 학습된 분포에서 보완"""
+        if not base_arrivals:
+            return []
+
+        valid = [v for v in base_arrivals if v is not None]
+
+        # 결측이 없으면 그대로 반환
+        if not valid:
+            fallback_start = datetime(2017, 1, 1)
+            max_minutes = 365 * 24 * 60
+            return [fallback_start + timedelta(minutes=np.random.uniform(0, max_minutes)) for _ in base_arrivals]
+
+        filled = []
+        for arrival in base_arrivals:
+            if arrival is None:
+                filled.append(np.random.choice(valid))
+            else:
+                filled.append(arrival)
+        return filled
     
     def _get_hierarchical_distribution(self, ktas: str, result: Optional[str]) -> Dict[str, Any]:
         """Get distribution parameters using hierarchical fallback"""
@@ -401,30 +466,82 @@ class ComprehensiveTimeGapSynthesizer:
         # Fallback to Level 3: Overall
         return self._time_patterns['hierarchical']['level_3']['overall']
     
-    def _sample_from_distribution(
+    def _sample_gap_minutes(
         self, 
         dist_params: Optional[Dict],
+        gap_name: str,
         default_mean: float = 60,
-        default_std: float = 30
+        default_std: float = 30,
+        ktas: str = "3"
     ) -> float:
-        """Sample from distribution or use defaults"""
+        """샘플링한 시간 차이(분)를 반환하고 비정상 값 보정"""
+        max_minutes = self.gap_definitions.get(gap_name, {}).get('max_hours', 24) * 60
+        if max_minutes <= 0:
+            max_minutes = 24 * 60
+
+        defaults = self._get_gap_defaults(gap_name, ktas, default_mean, default_std)
         if not dist_params:
-            return np.random.normal(default_mean, default_std)
+            sampled = np.random.normal(defaults["mean"], defaults["std"])
+            return float(np.clip(sampled, 1, max_minutes))
         
         if dist_params.get('distribution') == 'lognorm':
-            return stats.lognorm.rvs(
+            sampled = stats.lognorm.rvs(
                 dist_params['shape'],
                 dist_params['loc'],
                 dist_params['scale']
             )
         elif dist_params.get('distribution') == 'empirical':
             # Use normal approximation
-            return np.random.normal(
-                dist_params.get('mean', default_mean),
-                dist_params.get('std', default_std)
+            sampled = np.random.normal(
+                dist_params.get('mean', defaults["mean"]),
+                dist_params.get('std', defaults["std"])
             )
         else:
-            return default_mean
+            sampled = defaults["mean"]
+
+        if not np.isfinite(sampled):
+            sampled = defaults["mean"]
+
+        return float(np.clip(float(sampled), 1, max_minutes))
+
+    def _get_gap_defaults(self, gap_name: str, ktas: str, default_mean: float, default_std: float) -> Dict[str, float]:
+        """KTAS별 gap 기본값"""
+        ktas_key = (ktas or "3")[0]
+
+        severity_defaults = {
+            "incident_to_arrival": {
+                "mean_by_level": {"1": 30, "2": 45, "3": 60, "4": 90, "5": 120},
+                "std_by_level": {"1": 15, "2": 20, "3": 25, "4": 35, "5": 40},
+            },
+            "er_stay": {
+                "mean_by_level": {"1": 240, "2": 210, "3": 180, "4": 150, "5": 120},
+                "std_by_level": {"1": 90, "2": 80, "3": 70, "4": 60, "5": 80},
+            },
+            "discharge_to_admission": {
+                "mean_by_level": {"1": 30, "2": 45, "3": 60, "4": 90, "5": 120},
+                "std_by_level": {"1": 20, "2": 30, "3": 40, "4": 60, "5": 90},
+            },
+            "discharge_to_outpatient": {
+                "mean_by_level": {"1": 120, "2": 360, "3": 720, "4": 1080, "5": 1440},
+                "std_by_level": {"1": 60, "2": 120, "3": 240, "4": 360, "5": 480},
+            },
+            "arrival_to_admission": {
+                "mean_by_level": {"1": 45, "2": 90, "3": 150, "4": 210, "5": 300},
+                "std_by_level": {"1": 30, "2": 45, "3": 60, "4": 90, "5": 120},
+            },
+            "incident_to_discharge": {
+                "mean_by_level": {"1": 270, "2": 255, "3": 240, "4": 210, "5": 180},
+                "std_by_level": {"1": 120, "2": 110, "3": 100, "4": 90, "5": 90},
+            },
+        }
+
+        cfg = severity_defaults.get(gap_name, {})
+        mean_map = cfg.get("mean_by_level", {})
+        std_map = cfg.get("std_by_level", {})
+        return {
+            "mean": float(mean_map.get(ktas_key, default_mean)),
+            "std": float(std_map.get(ktas_key, default_std)),
+        }
     
     def _save_patterns_cache(self, patterns: Dict[str, Any]):
         """Save patterns to cache"""

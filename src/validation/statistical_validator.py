@@ -17,7 +17,6 @@ from typing import Dict, List, Tuple, Optional, Any
 import logging
 from scipy import stats
 from scipy.stats import wasserstein_distance
-import warnings
 
 from ..core.database import DatabaseManager
 from ..core.config import ConfigManager
@@ -26,17 +25,46 @@ from ..core.config import ConfigManager
 class StatisticalValidator:
     """통계적 검증기"""
     
-    def __init__(self, db_manager: DatabaseManager, config: ConfigManager):
+    def __init__(
+        self,
+        db_manager: DatabaseManager,
+        config: ConfigManager,
+        source_table: Optional[str] = None,
+    ):
         """
         통계적 검증기 초기화
         
         Args:
             db_manager: 데이터베이스 관리자
             config: 설정 관리자
+            source_table: 원본 테이블 경로
         """
         self.db = db_manager
         self.config = config
         self.logger = logging.getLogger(__name__)
+        self.source_table = self._resolve_source_table(source_table)
+        self._table_schema_cache: Dict[str, List[str]] = {}
+        self._continuous_config = {
+            "vst_sbp": (40, 300),
+            "vst_dbp": (30, 220),
+            "vst_per_pu": (1, 300),
+            "vst_per_br": (1, 200),
+            "vst_bdht": (34.0, 44.0),
+            "vst_oxy": (70, 100),
+        }
+        self._invalid_markers = {
+            -1,
+            -1.0,
+            999,
+            999.0,
+            "999",
+            "-1",
+            "-1.0",
+            "None",
+            "NULL",
+            "",
+            " ",
+        }
         
         # 검증할 변수들 정의
         self.continuous_variables = [
@@ -54,12 +82,17 @@ class StatisticalValidator:
         self.chi2_threshold = 0.05      # Chi-square 검정 p-value 임계값  
         self.correlation_threshold = 0.1 # 상관계수 차이 임계값
         
-    def validate_distributions(self, sample_size: int = 50000) -> Dict[str, Any]:
+    def validate_distributions(
+        self,
+        sample_size: int = 50000,
+        synthetic_df: Optional[pd.DataFrame] = None,
+    ) -> Dict[str, Any]:
         """
         전체적인 분포 검증 수행
         
         Args:
             sample_size: 검증에 사용할 샘플 크기
+            synthetic_df: 외부에서 전달된 합성 데이터프레임(없으면 DB 샘플 사용)
             
         Returns:
             검증 결과 딕셔너리
@@ -70,7 +103,7 @@ class StatisticalValidator:
         try:
             # 원본 및 합성 데이터 샘플 로드
             original_sample = self._load_original_sample(sample_size)
-            synthetic_sample = self._load_synthetic_sample(sample_size)
+            synthetic_sample = self._load_synthetic_sample(sample_size, synthetic_df)
             
             if original_sample.empty or synthetic_sample.empty:
                 return {'success': False, 'reason': 'No data available'}
@@ -121,18 +154,28 @@ class StatisticalValidator:
         """원본 데이터 샘플 로드"""
         
         try:
+            select_exprs = self._build_select_expressions(
+                self.source_table,
+                self.continuous_variables + self.categorical_variables
+            )
+            if not select_exprs:
+                self.logger.warning(
+                    "No overlapping variables found in source table: %s", self.source_table
+                )
+                return pd.DataFrame()
+
             sample_query = f"""
-                SELECT {', '.join(self.continuous_variables + self.categorical_variables)}
-                FROM nedis_original.nedis2017
+                SELECT {', '.join(select_exprs)}
+                FROM {self.source_table}
                 USING SAMPLE {sample_size}
             """
-            
+
             sample_data = self.db.fetch_dataframe(sample_query)
-            
-            # -1 값들을 NaN으로 변환 (측정되지 않은 값)
-            for col in self.continuous_variables:
-                if col in sample_data.columns:
-                    sample_data[col] = sample_data[col].replace(-1, np.nan)
+            sample_data = self._prepare_dataframe_sample(
+                sample_data,
+                sample_size,
+                self.continuous_variables + self.categorical_variables,
+            )
             
             self.logger.info(f"Loaded original sample: {len(sample_data)} records")
             return sample_data
@@ -141,25 +184,41 @@ class StatisticalValidator:
             self.logger.error(f"Failed to load original sample: {e}")
             return pd.DataFrame()
     
-    def _load_synthetic_sample(self, sample_size: int) -> pd.DataFrame:
+    def _load_synthetic_sample(
+        self,
+        sample_size: int,
+        synthetic_df: Optional[pd.DataFrame] = None,
+    ) -> pd.DataFrame:
         """합성 데이터 샘플 로드"""
+
+        if synthetic_df is not None:
+            return self._prepare_dataframe_sample(
+                synthetic_df,
+                sample_size,
+                self.continuous_variables + self.categorical_variables
+            )
         
         try:
+            select_exprs = self._build_select_expressions(
+                "nedis_synthetic.clinical_records",
+                self.continuous_variables + self.categorical_variables
+            )
+            if not select_exprs:
+                self.logger.warning("No overlapping variables found in nedis_synthetic.clinical_records")
+                return pd.DataFrame()
+
             sample_query = f"""
-                SELECT {', '.join(self.continuous_variables + self.categorical_variables)}
+                SELECT {', '.join(select_exprs)}
                 FROM nedis_synthetic.clinical_records
                 USING SAMPLE {sample_size}
             """
             
             sample_data = self.db.fetch_dataframe(sample_query)
-            
-            # -1 값들을 NaN으로 변환
-            for col in self.continuous_variables:
-                if col in sample_data.columns:
-                    sample_data[col] = sample_data[col].replace(-1, np.nan)
-                    # 체온의 경우 -1.0으로 저장될 수 있음
-                    if col == 'vst_bdht':
-                        sample_data[col] = sample_data[col].replace(-1.0, np.nan)
+            sample_data = self._prepare_dataframe_sample(
+                sample_data,
+                sample_size,
+                self.continuous_variables + self.categorical_variables,
+            )
             
             self.logger.info(f"Loaded synthetic sample: {len(sample_data)} records")
             return sample_data
@@ -167,6 +226,122 @@ class StatisticalValidator:
         except Exception as e:
             self.logger.error(f"Failed to load synthetic sample: {e}")
             return pd.DataFrame()
+
+    def _prepare_dataframe_sample(
+        self,
+        df: pd.DataFrame,
+        sample_size: int,
+        variables: List[str]
+    ) -> pd.DataFrame:
+        """입력 DataFrame에서 필요한 변수만 추출하여 샘플링"""
+        if df.empty:
+            return df
+
+        available = [var for var in variables if var in df.columns]
+        if not available:
+            self.logger.warning("No requested validation variables available in provided synthetic_df")
+            return pd.DataFrame()
+
+        sample_df = df[available].copy()
+        if len(sample_df) > sample_size:
+            sample_df = sample_df.sample(n=sample_size, random_state=42)
+
+        return self._clean_validation_frame(sample_df.reset_index(drop=True))
+
+    def _clean_validation_frame(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Normalize frame-level data before validation comparisons."""
+        cleaned = df.copy()
+
+        for col in self.continuous_variables:
+            if col not in cleaned.columns:
+                continue
+            cleaned[col] = self._clean_continuous_column(cleaned[col], col)
+
+        for col in self.categorical_variables:
+            if col not in cleaned.columns:
+                continue
+            cleaned[col] = self._clean_categorical_column(cleaned[col])
+
+        return cleaned
+
+    def _clean_continuous_column(self, series: pd.Series, variable: str) -> pd.Series:
+        numeric = pd.to_numeric(series, errors="coerce")
+        if variable in self._continuous_config:
+            min_v, max_v = self._continuous_config[variable]
+            numeric = numeric.replace(
+                [value for value in self._invalid_markers if isinstance(value, (int, float))],
+                np.nan,
+            )
+            numeric = numeric.where(numeric.between(min_v, max_v), np.nan)
+
+        return numeric
+
+    def _clean_categorical_column(self, series: pd.Series) -> pd.Series:
+        cleaned = series.copy()
+        cleaned = cleaned.astype("string")
+        cleaned = cleaned.where(~cleaned.isin([str(v) for v in self._invalid_markers]), pd.NA)
+        cleaned = cleaned.where(~cleaned.str.strip().isin([""]), pd.NA)
+        return cleaned
+
+    def _resolve_source_table(self, source_table: Optional[str]) -> str:
+        """원본 테이블 후보를 config, 입력값, 기본값 순으로 결정"""
+        configured = self.config.get('original.source_table')
+        candidates = [source_table, configured, 'nedis_original.nedis2017', 'nedis_data.nedis2017', 'main.nedis2017']
+
+        for candidate in candidates:
+            if not candidate:
+                continue
+            if isinstance(candidate, str) and self._table_exists(candidate):
+                return candidate
+
+        raise RuntimeError("No valid original source table found for statistical validation")
+
+    def _resolve_table_columns(self, table: str) -> List[str]:
+        """테이블 컬럼 목록 캐시 조회"""
+        if table in self._table_schema_cache:
+            return self._table_schema_cache[table]
+
+        schema_df = self.db.fetch_dataframe(f"PRAGMA table_info({table})")
+        columns = schema_df['name'].astype(str).tolist()
+        self._table_schema_cache[table] = columns
+        return columns
+
+    def _build_select_expressions(self, table: str, variables: List[str]) -> List[str]:
+        """변수명 불일치를 보완해 select 절 생성"""
+        available_columns = set(self._resolve_table_columns(table))
+
+        # 원본/합성 스키마 불일치 보정
+        fallback_map = {
+            'ktas_fstu': ['ktas_fstu', 'ktas01'],
+        }
+
+        select_exprs = []
+
+        for variable in variables:
+            candidates = fallback_map.get(variable, [variable])
+            selected = None
+            for candidate in candidates:
+                if candidate in available_columns:
+                    selected = candidate
+                    break
+            if selected is None:
+                continue
+
+            if variable in self.continuous_variables:
+                expr = f"TRY_CAST({selected} AS DOUBLE) AS {variable}"
+            else:
+                expr = f"CAST({selected} AS VARCHAR) AS {variable}"
+            select_exprs.append(expr)
+
+        return select_exprs
+
+    def _table_exists(self, table: str) -> bool:
+        """테이블 존재 여부 확인"""
+        try:
+            self.db.execute_query(f"SELECT 1 FROM {table} LIMIT 1")
+            return True
+        except Exception:
+            return False
     
     def _validate_continuous_variables(self, original: pd.DataFrame, 
                                      synthetic: pd.DataFrame) -> Dict[str, Any]:
@@ -190,31 +365,36 @@ class StatisticalValidator:
                 continue
             
             try:
-                # Kolmogorov-Smirnov 검정
+                # Kolmogorov-Smirnov and Wasserstein diagnostics
                 ks_statistic, ks_pvalue = stats.ks_2samp(orig_values, synt_values)
-                
-                # Wasserstein distance (Earth Mover's Distance)
                 wasserstein_dist = wasserstein_distance(orig_values, synt_values)
-                
-                # Anderson-Darling 검정
+
+                # Anderson-Darling is optional; keep for diagnostics only.
                 try:
-                    ad_statistic, ad_critical_values, ad_significance = stats.anderson_ksamp([orig_values, synt_values])
-                except:
+                    ad_statistic, _, ad_significance = stats.anderson_ksamp([orig_values, synt_values])
+                except Exception:
                     ad_statistic, ad_significance = None, None
-                
-                # 평균과 분산 비교
+
+                # Descriptive statistics
                 orig_mean, orig_std = orig_values.mean(), orig_values.std()
                 synt_mean, synt_std = synt_values.mean(), synt_values.std()
-                
-                mean_diff = abs(orig_mean - synt_mean) / orig_mean if orig_mean != 0 else 0
-                std_diff = abs(orig_std - synt_std) / orig_std if orig_std != 0 else 0
-                
+                mean_diff = abs(orig_mean - synt_mean) / (abs(orig_mean) + 1e-6)
+                std_diff = abs(orig_std - synt_std) / (abs(orig_std) + 1e-6)
+
+                ks_score = self._scale_score(1.0 - ks_statistic, tolerance=1.0)
+                wd_scale = (orig_values.max() - orig_values.min())
+                if not np.isfinite(wd_scale) or wd_scale <= 0:
+                    wd_scale = max(orig_values.std(), 1.0)
+                wd_score = self._scale_score(wasserstein_dist, tolerance=wd_scale)
+                moment_score = self._scale_score(mean_diff + std_diff, tolerance=1.0)
+                variable_score = 0.4 * ks_score + 0.3 * wd_score + 0.3 * moment_score
+
                 continuous_results[variable] = {
                     'ks_test': {
                         'statistic': float(ks_statistic),
                         'p_value': float(ks_pvalue),
-                        'passed': ks_pvalue >= self.ks_threshold
                     },
+                    'score': float(variable_score),
                     'wasserstein_distance': float(wasserstein_dist),
                     'anderson_darling': {
                         'statistic': float(ad_statistic) if ad_statistic else None,
@@ -277,13 +457,12 @@ class StatisticalValidator:
                 
                 # 기대빈도가 5 미만인 범주가 있으면 검정 수행 불가
                 if (expected_freqs < 5).any():
-                    chi2_result = {'test': 'low_expected_frequency', 'passed': False}
+                    chi2_result = {'test': 'low_expected_frequency'}
                 else:
                     chi2_statistic, chi2_pvalue = stats.chisquare(synt_common, expected_freqs)
                     chi2_result = {
                         'statistic': float(chi2_statistic),
                         'p_value': float(chi2_pvalue),
-                        'passed': chi2_pvalue >= self.chi2_threshold
                     }
                 
                 # Total Variation Distance 계산
@@ -291,9 +470,18 @@ class StatisticalValidator:
                 
                 # Jensen-Shannon Divergence 계산
                 js_divergence = self._jensen_shannon_divergence(orig_props.values, synt_props.values)
+
+                if 'p_value' in chi2_result:
+                    chi2_score = float(np.clip(chi2_result['p_value'] / self.chi2_threshold, 0.0, 1.0))
+                else:
+                    chi2_score = 1.0 - tv_distance
+                tv_score = 1.0 - min(1.0, tv_distance)
+                js_score = 1.0 - min(1.0, js_divergence / 0.25)
+                categorical_score = 0.5 * chi2_score + 0.3 * tv_score + 0.2 * js_score
                 
                 categorical_results[variable] = {
                     'chi2_test': chi2_result,
+                    'score': float(max(0.0, categorical_score)),
                     'total_variation_distance': float(tv_distance),
                     'jensen_shannon_divergence': float(js_divergence),
                     'category_overlap': {
@@ -353,7 +541,12 @@ class StatisticalValidator:
                     'difference_matrix': corr_diff.to_dict(),
                     'max_difference': float(corr_diff.values[mask].max()),
                     'mean_difference': float(corr_diff.values[mask].mean()),
-                    'passed': corr_diff.values[mask].max() <= self.correlation_threshold
+                    'score': float(
+                        self._scale_score(
+                            float(corr_diff.values[mask].max()),
+                            tolerance=self.correlation_threshold,
+                        )
+                    )
                 },
                 'variables_analyzed': common_continuous,
                 'sample_sizes': {'original': len(orig_clean), 'synthetic': len(synt_clean)}
@@ -368,7 +561,12 @@ class StatisticalValidator:
                 correlation_results['spearman_correlation'] = {
                     'max_difference': float(spearman_diff.values[mask].max()),
                     'mean_difference': float(spearman_diff.values[mask].mean()),
-                    'passed': spearman_diff.values[mask].max() <= self.correlation_threshold
+                    'score': float(
+                        self._scale_score(
+                            float(spearman_diff.values[mask].max()),
+                            tolerance=self.correlation_threshold,
+                        )
+                    )
                 }
             except Exception as e:
                 self.logger.warning(f"Spearman correlation calculation failed: {e}")
@@ -443,24 +641,23 @@ class StatisticalValidator:
         
         scores = []
         
-        # 연속형 변수 점수 (KS test 기준)
         continuous_tests = validation_results.get('continuous_tests', {})
         for variable, result in continuous_tests.items():
-            if 'ks_test' in result and 'passed' in result['ks_test']:
-                scores.append(1.0 if result['ks_test']['passed'] else 0.0)
-        
-        # 범주형 변수 점수 (Chi-square test 기준)
+            score = result.get('score')
+            if isinstance(score, (int, float)):
+                scores.append(float(score))
+
         categorical_tests = validation_results.get('categorical_tests', {})
         for variable, result in categorical_tests.items():
-            if 'chi2_test' in result and 'passed' in result['chi2_test']:
-                scores.append(1.0 if result['chi2_test']['passed'] else 0.0)
+            score = result.get('score')
+            if isinstance(score, (int, float)):
+                scores.append(float(score))
         
-        # 상관관계 점수
         correlation_analysis = validation_results.get('correlation_analysis', {})
-        if 'pearson_correlation' in correlation_analysis:
-            pearson_result = correlation_analysis['pearson_correlation']
-            if 'passed' in pearson_result:
-                scores.append(1.0 if pearson_result['passed'] else 0.0)
+        if isinstance(correlation_analysis, dict) and 'pearson_correlation' in correlation_analysis:
+            pearson_score = correlation_analysis['pearson_correlation'].get('score')
+            if isinstance(pearson_score, (int, float)):
+                scores.append(float(pearson_score))
         
         # 전체 점수 (평균)
         overall_score = np.mean(scores) if scores else 0.0
@@ -477,23 +674,29 @@ class StatisticalValidator:
         
         # 연속형 변수 결과
         continuous_tests = validation_results.get('continuous_tests', {})
-        continuous_passed = sum(1 for result in continuous_tests.values() 
-                              if result.get('ks_test', {}).get('passed', False))
-        self.logger.info(f"Continuous Variables: {continuous_passed}/{len(continuous_tests)} passed KS test")
+        continuous_scores = [result.get('score', 0.0) for result in continuous_tests.values()]
+        continuous_values = [s for s in continuous_scores if isinstance(s, (int, float))]
+        continuous_avg = float(np.mean(continuous_values)) if continuous_values else 0.0
+        self.logger.info(f"Continuous score avg: {continuous_avg:.3f}")
         
         # 범주형 변수 결과
         categorical_tests = validation_results.get('categorical_tests', {})
-        categorical_passed = sum(1 for result in categorical_tests.values() 
-                               if result.get('chi2_test', {}).get('passed', False))
-        self.logger.info(f"Categorical Variables: {categorical_passed}/{len(categorical_tests)} passed Chi-square test")
+        categorical_scores = [result.get('score', 0.0) for result in categorical_tests.values()]
+        categorical_values = [s for s in categorical_scores if isinstance(s, (int, float))]
+        categorical_avg = float(np.mean(categorical_values)) if categorical_values else 0.0
+        self.logger.info(f"Categorical score avg: {categorical_avg:.3f}")
         
         # 상관관계 결과
         correlation_analysis = validation_results.get('correlation_analysis', {})
         if 'pearson_correlation' in correlation_analysis:
-            corr_passed = correlation_analysis['pearson_correlation'].get('passed', False)
             max_corr_diff = correlation_analysis['pearson_correlation'].get('max_difference', 0)
-            self.logger.info(f"Correlation Analysis: {'Passed' if corr_passed else 'Failed'} "
-                           f"(max difference: {max_corr_diff:.3f})")
+            corr_score = correlation_analysis['pearson_correlation'].get('score', 0.0)
+            self.logger.info(f"Correlation score: {float(corr_score):.3f} (max difference: {max_corr_diff:.3f})")
+
+    def _scale_score(self, value: float, tolerance: float) -> float:
+        if not np.isfinite(value) or not np.isfinite(tolerance) or tolerance <= 0:
+            return 0.0
+        return float(max(0.0, 1.0 - min(value, tolerance * 2) / (tolerance * 2)))
     
     def generate_validation_report(self, validation_results: Dict[str, Any]) -> str:
         """검증 결과 리포트 생성"""
@@ -525,46 +728,40 @@ class StatisticalValidator:
         # 연속형 변수 결과
         continuous_tests = validation_results.get('continuous_tests', {})
         if continuous_tests:
-            report.append("## Continuous Variables (Kolmogorov-Smirnov Test)")
-            report.append("| Variable | KS Statistic | p-value | Status | Mean Diff (%) | Std Diff (%) |")
-            report.append("|----------|--------------|---------|--------|---------------|--------------|")
+            report.append("## Continuous Variables")
+            report.append("| Variable | KS Statistic | p-value | Score | Mean Diff (%) | Std Diff (%) |")
+            report.append("|----------|--------------|---------|-------|---------------|--------------|")
             
             for variable, result in continuous_tests.items():
                 if 'ks_test' in result:
                     ks_stat = result['ks_test']['statistic']
                     ks_pval = result['ks_test']['p_value']
-                    status = "✅ Pass" if result['ks_test']['passed'] else "❌ Fail"
-                    
+                    score = result.get('score', 0.0)
                     desc_stats = result.get('descriptive_stats', {})
                     mean_diff = desc_stats.get('mean_relative_diff', 0) * 100
                     std_diff = desc_stats.get('std_relative_diff', 0) * 100
-                    
-                    report.append(f"| {variable} | {ks_stat:.4f} | {ks_pval:.4f} | {status} | {mean_diff:.1f}% | {std_diff:.1f}% |")
-            
+                    report.append(
+                        f"| {variable} | {ks_stat:.4f} | {ks_pval:.4f} | {float(score):.3f} | "
+                        f"{mean_diff:.1f}% | {std_diff:.1f}% |"
+                    )
             report.append("")
         
-        # 범주형 변수 결과  
+        # 범주형 변수 결과
         categorical_tests = validation_results.get('categorical_tests', {})
         if categorical_tests:
-            report.append("## Categorical Variables (Chi-square Test)")
-            report.append("| Variable | Chi-square | p-value | Status | TV Distance | JS Divergence |")
-            report.append("|----------|------------|---------|--------|-------------|---------------|")
+            report.append("## Categorical Variables")
+            report.append("| Variable | Chi-square | p-value | Score | TV Distance | JS Divergence |")
+            report.append("|----------|------------|---------|-------|-------------|---------------|")
             
             for variable, result in categorical_tests.items():
                 if 'chi2_test' in result:
                     chi2_test = result['chi2_test']
-                    if 'statistic' in chi2_test:
-                        chi2_stat = chi2_test['statistic']
-                        chi2_pval = chi2_test['p_value']
-                        status = "✅ Pass" if chi2_test['passed'] else "❌ Fail"
-                    else:
-                        chi2_stat, chi2_pval, status = "N/A", "N/A", "⚠️ Skip"
-                    
+                    score = result.get('score', 0.0)
+                    chi2_stat = chi2_test.get('statistic', "N/A")
+                    chi2_pval = chi2_test.get('p_value', "N/A")
                     tv_dist = result.get('total_variation_distance', 0)
                     js_div = result.get('jensen_shannon_divergence', 0)
-                    
-                    report.append(f"| {variable} | {chi2_stat} | {chi2_pval} | {status} | {tv_dist:.4f} | {js_div:.4f} |")
-            
+                    report.append(f"| {variable} | {chi2_stat} | {chi2_pval} | {float(score):.3f} | {tv_dist:.4f} | {js_div:.4f} |")
             report.append("")
         
         # 상관관계 결과
@@ -572,9 +769,9 @@ class StatisticalValidator:
         if 'pearson_correlation' in correlation_analysis:
             corr_result = correlation_analysis['pearson_correlation']
             report.append("## Correlation Analysis")
+            report.append(f"- Correlation score: {corr_result.get('score', 0.0):.3f}")
             report.append(f"- Maximum correlation difference: {corr_result.get('max_difference', 0):.4f}")
             report.append(f"- Mean correlation difference: {corr_result.get('mean_difference', 0):.4f}")
-            report.append(f"- Status: {'✅ Pass' if corr_result.get('passed', False) else '❌ Fail'}")
             report.append("")
         
         return "\n".join(report)
@@ -610,7 +807,7 @@ class StatisticalValidator:
                          p_value, passed, sample_size, additional_info)
                         VALUES ('continuous', ?, 'ks_statistic', ?, ?, ?, ?, ?)
                     """, (variable, ks_test['statistic'], ks_test['p_value'], 
-                          ks_test['passed'], result['sample_sizes']['synthetic'], 
+                          result.get('score', 0.0) >= 0.5, result['sample_sizes']['synthetic'], 
                           str(result.get('descriptive_stats', {}))))
             
             # 범주형 변수 결과 저장
@@ -624,7 +821,7 @@ class StatisticalValidator:
                          p_value, passed, additional_info)
                         VALUES ('categorical', ?, 'chi2_statistic', ?, ?, ?, ?)
                     """, (variable, chi2_test['statistic'], chi2_test['p_value'],
-                          chi2_test['passed'], str(result.get('category_overlap', {}))))
+                          result.get('score', 0.0) >= 0.5, str(result.get('category_overlap', {}))))
             
             # 전체 점수 저장
             self.db.execute_query("""

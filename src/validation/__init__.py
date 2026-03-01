@@ -7,8 +7,12 @@ Validation & Privacy Protection Module
 
 from .statistical_validator import StatisticalValidator
 from .clinical_validator import ClinicalRuleValidator
+from .correlation_balance_validator import CorrelationBalanceValidator
+from .pipeline_quality_validator import PipelineQualityValidator
 
 __all__ = [
     'StatisticalValidator',
-    'ClinicalRuleValidator'
+    'ClinicalRuleValidator',
+    'CorrelationBalanceValidator',
+    'PipelineQualityValidator',
 ]
