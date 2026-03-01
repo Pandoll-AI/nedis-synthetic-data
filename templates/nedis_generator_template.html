@@ -83,160 +83,160 @@ h1{font-size:1.5rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:.25rem}
   </div>
 </div>
 
-<!-- patterns.json will be injected here by build script -->
 <script id="patternData" type="application/json">%%PATTERNS_JSON%%</script>
 
 <script>
-// ============================================================
-// GLOBALS
-// ============================================================
-let PATTERNS = null;
-let generatedData = null;
-let worker = null;
+var PATTERNS = null;
+var generatedData = null;
+var activeWorkers = [];
 
-try {
-  PATTERNS = JSON.parse(document.getElementById('patternData').textContent);
-} catch(e) {
-  console.error('Failed to parse patterns:', e);
-}
+try { PATTERNS = JSON.parse(document.getElementById('patternData').textContent); } catch(e) { console.error('Pattern parse error:', e); }
 
-const COLUMNS = [
+var COLUMNS = [
   'index_key','emorg_cd','pat_reg_no','vst_dt','vst_tm','pat_age_gr','pat_sex',
   'pat_do_cd','vst_meth','ktas_fstu','ktas01','msypt','main_trt_p','emtrt_rust',
   'otrm_dt','otrm_tm','ocur_dt','ocur_tm','vst_sbp','vst_dbp','vst_per_pu',
   'vst_per_br','vst_bdht','vst_oxy','inpat_dt','inpat_tm','inpat_rust'
 ];
 
-// ============================================================
-// UI CONTROL
-// ============================================================
 function showError(msg) {
-  const el = document.getElementById('errorMsg');
+  var el = document.getElementById('errorMsg');
   el.textContent = msg;
   el.style.display = 'block';
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = String(str);
-  return div.textContent;
-}
-
 function startGeneration() {
-  const numRecords = parseInt(document.getElementById('numRecords').value) || 10000;
-  const targetYear = parseInt(document.getElementById('targetYear').value) || 2018;
-  const seed = parseInt(document.getElementById('randomSeed').value) || 42;
+  var numRecords = parseInt(document.getElementById('numRecords').value) || 10000;
+  var targetYear = parseInt(document.getElementById('targetYear').value) || 2018;
+  var seed = parseInt(document.getElementById('randomSeed').value) || 42;
 
-  if (numRecords < 1 || numRecords > 1000000) {
-    showError('Records must be between 1 and 1,000,000');
-    return;
-  }
+  if (numRecords < 1 || numRecords > 1000000) { showError('Records: 1 ~ 1,000,000'); return; }
 
   document.getElementById('errorMsg').style.display = 'none';
   document.getElementById('btnGenerate').disabled = true;
   document.getElementById('progressWrap').style.display = 'block';
   document.getElementById('progressFill').style.width = '0%';
-  document.getElementById('progressText').textContent = 'Initializing...';
+  document.getElementById('progressText').textContent = 'Initializing workers...';
   document.getElementById('resultsSection').style.display = 'none';
 
-  const workerCode = `(${workerMain.toString()})()`;
-  const blob = new Blob([workerCode], { type: 'application/javascript' });
-  if (worker) worker.terminate();
-  worker = new Worker(URL.createObjectURL(blob));
+  // Kill old workers
+  activeWorkers.forEach(function(w) { w.terminate(); });
+  activeWorkers = [];
 
-  const startTime = performance.now();
+  var numWorkers = Math.min(navigator.hardwareConcurrency || 4, 8, Math.ceil(numRecords / 500));
+  var startTime = performance.now();
 
-  worker.onmessage = function(e) {
-    const msg = e.data;
-    if (msg.type === 'progress') {
-      document.getElementById('progressFill').style.width = msg.pct + '%';
-      document.getElementById('progressText').textContent = msg.label;
-    } else if (msg.type === 'done') {
-      const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
-      generatedData = msg.data;
-      document.getElementById('progressFill').style.width = '100%';
-      document.getElementById('progressText').textContent = 'Done in ' + elapsed + 's';
-      document.getElementById('btnGenerate').disabled = false;
-      showResults(generatedData, elapsed);
-      worker.terminate();
-      worker = null;
-    } else if (msg.type === 'error') {
-      showError(msg.message);
-      document.getElementById('btnGenerate').disabled = false;
-      document.getElementById('progressWrap').style.display = 'none';
-    }
-  };
+  // Split work
+  var chunks = [];
+  var base = Math.floor(numRecords / numWorkers);
+  var remainder = numRecords % numWorkers;
+  var offsetId = 0;
+  for (var i = 0; i < numWorkers; i++) {
+    var chunkSize = base + (i < remainder ? 1 : 0);
+    chunks.push({ chunkSize: chunkSize, offsetId: offsetId, workerIdx: i, seed: seed + i * 1000000 });
+    offsetId += chunkSize;
+  }
 
-  worker.postMessage({ patterns: PATTERNS, numRecords, targetYear, seed });
+  var results = new Array(numWorkers);
+  var completed = 0;
+  var workerProgress = new Array(numWorkers);
+  for (var i = 0; i < numWorkers; i++) workerProgress[i] = 0;
+
+  var workerCode = '(' + workerMain.toString() + ')()';
+  var blob = new Blob([workerCode], { type: 'application/javascript' });
+  var blobUrl = URL.createObjectURL(blob);
+
+  for (var i = 0; i < numWorkers; i++) {
+    (function(idx) {
+      var w = new Worker(blobUrl);
+      activeWorkers.push(w);
+      w.onmessage = function(e) {
+        var msg = e.data;
+        if (msg.type === 'progress') {
+          workerProgress[idx] = msg.pct;
+          var totalPct = 0;
+          for (var j = 0; j < numWorkers; j++) totalPct += workerProgress[j];
+          totalPct = Math.round(totalPct / numWorkers);
+          document.getElementById('progressFill').style.width = totalPct + '%';
+          document.getElementById('progressText').textContent = msg.label + ' (' + totalPct + '%)';
+        } else if (msg.type === 'done') {
+          results[idx] = msg.data;
+          completed++;
+          if (completed === numWorkers) {
+            // Merge results
+            var merged = [];
+            for (var j = 0; j < numWorkers; j++) {
+              for (var k = 0; k < results[j].length; k++) merged.push(results[j][k]);
+            }
+            var elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+            generatedData = merged;
+            document.getElementById('progressFill').style.width = '100%';
+            document.getElementById('progressText').textContent = 'Done in ' + elapsed + 's (' + numWorkers + ' workers)';
+            document.getElementById('btnGenerate').disabled = false;
+            showResults(merged, elapsed, numWorkers);
+            activeWorkers.forEach(function(wk) { wk.terminate(); });
+            activeWorkers = [];
+            URL.revokeObjectURL(blobUrl);
+          }
+        } else if (msg.type === 'error') {
+          showError('Worker ' + idx + ': ' + msg.message);
+          document.getElementById('btnGenerate').disabled = false;
+        }
+      };
+      w.postMessage({
+        patterns: PATTERNS, numRecords: chunks[idx].chunkSize,
+        targetYear: targetYear, seed: chunks[idx].seed, offsetId: chunks[idx].offsetId
+      });
+    })(i);
+  }
 }
 
-function showResults(data, elapsed) {
-  const section = document.getElementById('resultsSection');
-  section.style.display = 'block';
-
-  const statsGrid = document.getElementById('statsGrid');
+function showResults(data, elapsed, numWorkers) {
+  document.getElementById('resultsSection').style.display = 'block';
+  var statsGrid = document.getElementById('statsGrid');
   statsGrid.style.display = 'grid';
-  const n = data.length;
+  var n = data.length;
 
-  const ktasCounts = {};
-  const sexCounts = { '1': 0, '2': 0 };
-  data.forEach(function(r) {
+  var ktasCounts = {};
+  var sexCounts = { '1': 0, '2': 0 };
+  for (var i = 0; i < n; i++) {
+    var r = data[i];
     ktasCounts[r.ktas_fstu] = (ktasCounts[r.ktas_fstu] || 0) + 1;
     sexCounts[r.pat_sex] = (sexCounts[r.pat_sex] || 0) + 1;
-  });
-  const ktasStr = ['1','2','3','4','5'].map(function(k) {
+  }
+  var ktasStr = ['1','2','3','4','5'].map(function(k) {
     return k + '(' + ((ktasCounts[k]||0)/n*100).toFixed(1) + '%)';
   }).join(' ');
-  const mPct = ((sexCounts['1']/n)*100).toFixed(1);
-  const fPct = ((sexCounts['2']/n)*100).toFixed(1);
 
-  // Build stats using DOM methods
   statsGrid.textContent = '';
-  var statsHtml = [
-    {label: 'Total:', value: n.toLocaleString()},
-    {label: 'Time:', value: elapsed + 's'},
-    {label: 'Sex:', value: 'M ' + mPct + '% / F ' + fPct + '%'},
-    {label: 'KTAS:', value: ktasStr}
+  var stats = [
+    {l:'Total:', v: n.toLocaleString()},
+    {l:'Time:', v: elapsed + 's / ' + numWorkers + ' workers'},
+    {l:'Sex:', v: 'M ' + ((sexCounts['1']/n)*100).toFixed(1) + '% / F ' + ((sexCounts['2']/n)*100).toFixed(1) + '%'},
+    {l:'KTAS:', v: ktasStr}
   ];
-  statsHtml.forEach(function(s) {
-    var div = document.createElement('div');
-    div.className = 'stat-item';
-    var lbl = document.createElement('span');
-    lbl.className = 'stat-label';
-    lbl.textContent = s.label;
-    var val = document.createElement('span');
-    val.className = 'stat-value';
-    val.textContent = ' ' + s.value;
-    div.appendChild(lbl);
-    div.appendChild(val);
-    statsGrid.appendChild(div);
+  stats.forEach(function(s) {
+    var div = document.createElement('div'); div.className = 'stat-item';
+    var lbl = document.createElement('span'); lbl.className = 'stat-label'; lbl.textContent = s.l;
+    var val = document.createElement('span'); val.className = 'stat-value'; val.textContent = ' ' + s.v;
+    div.appendChild(lbl); div.appendChild(val); statsGrid.appendChild(div);
   });
 
   document.getElementById('downloadBtns').style.display = 'flex';
 
-  // Preview table (first 20 rows) - built with DOM methods
   var wrap = document.getElementById('previewWrap');
   wrap.style.display = 'block';
   var table = document.getElementById('previewTable');
   table.textContent = '';
   var thead = document.createElement('thead');
   var headRow = document.createElement('tr');
-  COLUMNS.forEach(function(c) {
-    var th = document.createElement('th');
-    th.textContent = c;
-    headRow.appendChild(th);
-  });
-  thead.appendChild(headRow);
-  table.appendChild(thead);
+  COLUMNS.forEach(function(c) { var th = document.createElement('th'); th.textContent = c; headRow.appendChild(th); });
+  thead.appendChild(headRow); table.appendChild(thead);
   var tbody = document.createElement('tbody');
   var preview = data.slice(0, 20);
   preview.forEach(function(row) {
     var tr = document.createElement('tr');
-    COLUMNS.forEach(function(c) {
-      var td = document.createElement('td');
-      td.textContent = row[c] != null ? String(row[c]) : '';
-      tr.appendChild(td);
-    });
+    COLUMNS.forEach(function(c) { var td = document.createElement('td'); td.textContent = row[c] != null ? String(row[c]) : ''; tr.appendChild(td); });
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
@@ -244,23 +244,29 @@ function showResults(data, elapsed) {
 
 function downloadCSV() {
   if (!generatedData) return;
-  var csv = COLUMNS.join(',') + '\n';
-  generatedData.forEach(function(row) {
-    csv += COLUMNS.map(function(c) {
-      var v = row[c] != null ? String(row[c]) : '';
-      return v.indexOf(',') >= 0 ? '"' + v + '"' : v;
-    }).join(',') + '\n';
-  });
-  downloadFile(csv, 'nedis_synthetic.csv', 'text/csv');
+  var parts = [COLUMNS.join(',') + '\n'];
+  var batch = [];
+  for (var i = 0; i < generatedData.length; i++) {
+    var row = generatedData[i];
+    var line = '';
+    for (var j = 0; j < COLUMNS.length; j++) {
+      if (j > 0) line += ',';
+      var v = row[COLUMNS[j]];
+      line += (v != null ? String(v) : '');
+    }
+    batch.push(line);
+    if (batch.length >= 10000) { parts.push(batch.join('\n') + '\n'); batch = []; }
+  }
+  if (batch.length > 0) parts.push(batch.join('\n') + '\n');
+  downloadFile(new Blob(parts, {type:'text/csv'}), 'nedis_synthetic.csv');
 }
 
 function downloadJSON() {
   if (!generatedData) return;
-  downloadFile(JSON.stringify(generatedData, null, 2), 'nedis_synthetic.json', 'application/json');
+  downloadFile(new Blob([JSON.stringify(generatedData)], {type:'application/json'}), 'nedis_synthetic.json');
 }
 
-function downloadFile(content, filename, mime) {
-  var blob = new Blob([content], { type: mime });
+function downloadFile(blob, filename) {
   var a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename;
@@ -269,14 +275,14 @@ function downloadFile(content, filename, mime) {
 }
 
 // ============================================================
-// WEB WORKER CODE (inlined as function)
+// WEB WORKER CODE — optimized with precompiled pattern caches
 // ============================================================
 function workerMain() {
   self.onmessage = function(e) {
     try {
       var msg = e.data;
       var gen = new NEDISGenerator(msg.patterns, msg.seed);
-      var data = gen.generate(msg.numRecords, msg.targetYear);
+      var data = gen.generate(msg.numRecords, msg.targetYear, msg.offsetId || 0);
       self.postMessage({ type: 'done', data: data });
     } catch(err) {
       self.postMessage({ type: 'error', message: err.message || String(err) });
@@ -308,33 +314,44 @@ function workerMain() {
   SeededRNG.prototype.randInt = function(min, max) { return min + Math.floor(this.random() * (max - min + 1)); };
 
   // ========================================
-  // Statistical utilities
+  // Pre-compiled distribution (items + cumulative Float64Array)
   // ========================================
-  function weightedSample(rng, items, probs) {
-    var r = rng.random();
-    var cum = 0;
-    for (var i = 0; i < items.length; i++) {
-      cum += probs[i];
-      if (r < cum) return items[i];
+  function compileDist(dict) {
+    var keys = Object.keys(dict);
+    var n = keys.length;
+    var cum = new Float64Array(n);
+    cum[0] = dict[keys[0]];
+    for (var i = 1; i < n; i++) cum[i] = cum[i-1] + dict[keys[i]];
+    // Normalize
+    var total = cum[n-1];
+    if (total > 0 && Math.abs(total - 1) > 0.001) {
+      for (var i = 0; i < n; i++) cum[i] /= total;
     }
-    return items[items.length - 1];
+    return { items: keys, cum: cum, n: n };
   }
 
-  function multinomialSample(rng, items, probs, n) {
-    var result = new Array(n);
-    var cumProbs = new Float64Array(probs.length);
-    cumProbs[0] = probs[0];
-    for (var i = 1; i < probs.length; i++) cumProbs[i] = cumProbs[i-1] + probs[i];
-    var total = cumProbs[cumProbs.length - 1];
-    if (Math.abs(total - 1) > 0.01) {
-      for (var i = 0; i < cumProbs.length; i++) cumProbs[i] /= total;
+  function sampleCompiled(rng, cd) {
+    var r = rng.random();
+    // Binary search on cumulative array
+    var lo = 0, hi = cd.n - 1;
+    while (lo < hi) {
+      var mid = (lo + hi) >> 1;
+      if (cd.cum[mid] < r) lo = mid + 1; else hi = mid;
     }
+    return cd.items[lo];
+  }
+
+  function batchSampleCompiled(rng, cd, n) {
+    var result = new Array(n);
+    var cum = cd.cum;
+    var items = cd.items;
+    var len = cd.n;
     for (var j = 0; j < n; j++) {
       var r = rng.random();
-      var lo = 0, hi = cumProbs.length - 1;
+      var lo = 0, hi = len - 1;
       while (lo < hi) {
         var mid = (lo + hi) >> 1;
-        if (cumProbs[mid] < r) lo = mid + 1; else hi = mid;
+        if (cum[mid] < r) lo = mid + 1; else hi = mid;
       }
       result[j] = items[lo];
     }
@@ -344,516 +361,520 @@ function workerMain() {
   function normalSample(rng, mean, std) {
     var u1 = rng.random() || 1e-10;
     var u2 = rng.random();
-    var z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    return mean + z * std;
+    return mean + std * Math.sqrt(-2 * Math.log(u1)) * Math.cos(6.283185307179586 * u2);
   }
 
   function lognormSample(rng, shape, loc, scale) {
     if (!shape || !scale) return loc || 30;
-    var z = normalSample(rng, 0, 1);
-    return loc + scale * Math.exp(shape * z);
+    return loc + scale * Math.exp(shape * normalSample(rng, 0, 1));
   }
 
-  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-
-  function dictToArrays(dict) {
-    var items = Object.keys(dict);
-    var probs = new Array(items.length);
-    for (var i = 0; i < items.length; i++) probs[i] = dict[items[i]];
-    return { items: items, probs: probs };
-  }
+  function clamp(v, min, max) { return v < min ? min : (v > max ? max : v); }
 
   // ========================================
-  // Hierarchical lookup
+  // Pattern pre-compilation cache
   // ========================================
-  function hierarchicalKtasLookup(ktasPatterns, regionCode, hospitalType) {
-    var key = regionCode + '_' + hospitalType;
-    var majorKey = regionCode.substring(0, 2) + '_' + hospitalType;
-    if (ktasPatterns.detailed_patterns[key]) return ktasPatterns.detailed_patterns[key];
-    if (ktasPatterns.major_patterns[majorKey]) return ktasPatterns.major_patterns[majorKey];
-    if (ktasPatterns.national_patterns && ktasPatterns.national_patterns[hospitalType] &&
-        Object.keys(ktasPatterns.national_patterns[hospitalType]).length > 0)
-      return ktasPatterns.national_patterns[hospitalType];
-    return ktasPatterns.overall_pattern;
+  function PatternCache(patterns) {
+    this.P = patterns;
+    this._cache = {};
+  }
+  PatternCache.prototype.get = function(category, key) {
+    var cacheKey = category + '|' + key;
+    if (this._cache[cacheKey]) return this._cache[cacheKey];
+    var src = this.P[category];
+    var dict = src ? src[key] : null;
+    if (!dict || typeof dict !== 'object') return null;
+    var cd = compileDist(dict);
+    this._cache[cacheKey] = cd;
+    return cd;
+  };
+  PatternCache.prototype.compileDirect = function(dict) {
+    // For inline dicts not from patterns
+    return compileDist(dict);
+  };
+
+  // ========================================
+  // Hierarchical lookups
+  // ========================================
+  function hierarchicalKtasLookup(ktasP, region, hospitalType, cache) {
+    var key = region + '_' + hospitalType;
+    var majorKey = region.substring(0, 2) + '_' + hospitalType;
+    var d;
+    // Check detailed
+    d = ktasP.detailed_patterns[key];
+    if (d && Object.keys(d).length > 0) { var ck = 'ktas_d|' + key; if (!cache._cache[ck]) cache._cache[ck] = compileDist(d); return cache._cache[ck]; }
+    // Major
+    d = ktasP.major_patterns[majorKey];
+    if (d && Object.keys(d).length > 0) { var ck = 'ktas_m|' + majorKey; if (!cache._cache[ck]) cache._cache[ck] = compileDist(d); return cache._cache[ck]; }
+    // National
+    if (ktasP.national_patterns && ktasP.national_patterns[hospitalType]) {
+      d = ktasP.national_patterns[hospitalType];
+      if (d && Object.keys(d).length > 0) { var ck = 'ktas_n|' + hospitalType; if (!cache._cache[ck]) cache._cache[ck] = compileDist(d); return cache._cache[ck]; }
+    }
+    // Overall
+    var ck = 'ktas_o';
+    if (!cache._cache[ck]) cache._cache[ck] = compileDist(ktasP.overall_pattern);
+    return cache._cache[ck];
   }
 
-  function hierarchicalTimeGapLookup(compTimePatterns, ktasLevel, resultCode, gapName) {
-    if (!compTimePatterns) return null;
-    var key1 = 'ktas_' + ktasLevel + '_result_' + resultCode;
-    var key2 = 'ktas_' + ktasLevel;
-    if (compTimePatterns.level_1 && compTimePatterns.level_1[key1] && compTimePatterns.level_1[key1][gapName])
-      return compTimePatterns.level_1[key1][gapName];
-    if (compTimePatterns.level_2 && compTimePatterns.level_2[key2] && compTimePatterns.level_2[key2][gapName])
-      return compTimePatterns.level_2[key2][gapName];
-    if (compTimePatterns.level_3 && compTimePatterns.level_3.overall && compTimePatterns.level_3.overall[gapName])
-      return compTimePatterns.level_3.overall[gapName];
+  function hierarchicalTimeGapLookup(compTime, ktas, result, gapName) {
+    if (!compTime) return null;
+    var key1 = 'ktas_' + ktas + '_result_' + result;
+    var key2 = 'ktas_' + ktas;
+    var l1 = compTime.level_1;
+    if (l1 && l1[key1] && l1[key1][gapName]) return l1[key1][gapName];
+    var l2 = compTime.level_2;
+    if (l2 && l2[key2] && l2[key2][gapName]) return l2[key2][gapName];
+    var l3 = compTime.level_3;
+    if (l3 && l3.overall && l3.overall[gapName]) return l3.overall[gapName];
     return null;
   }
 
   // ========================================
-  // Date/time formatting
+  // Date/time helpers
   // ========================================
   function formatDate(d) {
-    return String(d.getFullYear()) +
-      String(d.getMonth() + 1).padStart(2, '0') +
-      String(d.getDate()).padStart(2, '0');
+    var m = d.getMonth() + 1;
+    var day = d.getDate();
+    return String(d.getFullYear()) + (m < 10 ? '0' : '') + m + (day < 10 ? '0' : '') + day;
   }
   function formatTime(d) {
-    return String(d.getHours()).padStart(2, '0') +
-      String(d.getMinutes()).padStart(2, '0');
+    var h = d.getHours();
+    var m = d.getMinutes();
+    return (h < 10 ? '0' : '') + h + (m < 10 ? '0' : '') + m;
   }
 
   // ========================================
-  // NEDIS Generator
+  // NEDIS Generator (optimized)
   // ========================================
   function NEDISGenerator(patterns, seed) {
     this.P = patterns;
     this.rng = new SeededRNG(seed);
+    this.cache = new PatternCache(patterns);
+
+    // Pre-compile demographic dist
+    this._demoDist = compileDist(patterns.demographic_patterns);
+
+    // Pre-compile regional dist (by total_visits)
+    var rp = patterns.regional_patterns;
+    var rKeys = Object.keys(rp).filter(function(k) { return k !== ''; });
+    var rDict = {};
+    for (var i = 0; i < rKeys.length; i++) rDict[rKeys[i]] = rp[rKeys[i]].total_visits;
+    this._regionDist = compileDist(rDict);
+
+    // Pre-compile hourly/temporal distributions
+    var tp = patterns.temporal_patterns;
+    this._hourlyDist = tp.hourly_pattern ? compileDist(tp.hourly_pattern) : null;
+    this._monthlyP = tp.monthly_pattern || {};
+    this._weekdayP = tp.weekday_pattern || {};
+
+    // Pre-compile conditional temporal distributions
+    this._condTemporalCache = {};
+    var ctp = patterns.temporal_conditional_patterns;
+    if (ctp) {
+      var types = ['month_dow_hour', 'month_hour', 'dow_hour'];
+      for (var t = 0; t < types.length; t++) {
+        var ttype = types[t];
+        if (ctp[ttype]) {
+          this._condTemporalCache[ttype] = {};
+          var keys = Object.keys(ctp[ttype]);
+          for (var k = 0; k < keys.length; k++) {
+            this._condTemporalCache[ttype][keys[k]] = compileDist(ctp[ttype][keys[k]]);
+          }
+        }
+      }
+    }
   }
 
-  NEDISGenerator.prototype.generate = function(n, year) {
+  NEDISGenerator.prototype.generate = function(n, year, offsetId) {
+    // Use columnar storage for hot fields during generation, convert to records at the end
+    var pat_age_gr = new Array(n);
+    var pat_sex = new Array(n);
+    var pat_do_cd = new Array(n);
+    var emorg_cd = new Array(n);
+    var vst_meth = new Array(n);
+    var msypt = new Array(n);
+    var main_trt_p = new Array(n);
+    var ktas_fstu = new Array(n);
+    var ktas01 = new Int8Array(n);
+    var emtrt_rust = new Array(n);
+    var vst_sbp = new Int16Array(n);
+    var vst_dbp = new Int16Array(n);
+    var vst_per_pu = new Int16Array(n);
+    var vst_per_br = new Int16Array(n);
+    var vst_bdht = new Float32Array(n); // *10, stored as int
+    var vst_oxy = new Int16Array(n);
+    var vst_dt = new Array(n);
+    var vst_tm = new Array(n);
+    var ocur_dt = new Array(n);
+    var ocur_tm = new Array(n);
+    var otrm_dt = new Array(n);
+    var otrm_tm = new Array(n);
+    var inpat_dt = new Array(n);
+    var inpat_tm = new Array(n);
+    var inpat_rust = new Array(n);
+
+    // Step 1: Demographics (batch)
+    progress(5, 'Demographics...');
+    var demoSamples = batchSampleCompiled(this.rng, this._demoDist, n);
+    var regionSamples = batchSampleCompiled(this.rng, this._regionDist, n);
+    for (var i = 0; i < n; i++) {
+      var parts = demoSamples[i];
+      var sep = parts.indexOf('_');
+      pat_age_gr[i] = parts.substring(0, sep);
+      pat_sex[i] = parts.charAt(sep + 1) === 'M' ? '1' : '2';
+      pat_do_cd[i] = regionSamples[i];
+    }
+
+    // Step 2: Hospital (cached compiled dists per region)
+    progress(15, 'Hospitals...');
+    var ha = this.P.hospital_allocation;
+    var hospCache = {};
+    for (var i = 0; i < n; i++) {
+      var region = pat_do_cd[i];
+      if (!hospCache[region]) {
+        var hospProbs = ha.patterns[region];
+        if (!hospProbs) {
+          var major = region.substring(0, 2);
+          hospProbs = ha.hierarchical_fallback[major] || ha.patterns[Object.keys(ha.patterns)[0]];
+        }
+        hospCache[region] = compileDist(hospProbs);
+      }
+      emorg_cd[i] = sampleCompiled(this.rng, hospCache[region]);
+    }
+
+    // Step 3: Clinical independent (cached)
+    progress(25, 'Clinical attrs...');
+    var vmCache = {}, ccCache = {}, deptCache = {};
+    var vm = this.P.visit_method_patterns;
+    var cc = this.P.chief_complaint_patterns;
+    var dept = this.P.department_patterns;
+    var vmKeys0 = Object.keys(vm)[0];
+    var ccKeys0 = Object.keys(cc)[0];
+    var deptKeys0 = Object.keys(dept)[0];
+
+    for (var i = 0; i < n; i++) {
+      var age = pat_age_gr[i];
+      var sex = pat_sex[i] === '1' ? 'M' : 'F';
+      var key = age + '_' + sex;
+
+      if (!vmCache[age]) vmCache[age] = compileDist(vm[age] || vm[vmKeys0]);
+      vst_meth[i] = sampleCompiled(this.rng, vmCache[age]);
+
+      if (!ccCache[key]) ccCache[key] = compileDist(cc[key] || cc[ccKeys0]);
+      msypt[i] = sampleCompiled(this.rng, ccCache[key]);
+
+      if (!deptCache[key]) deptCache[key] = compileDist(dept[key] || dept[deptKeys0]);
+      main_trt_p[i] = sampleCompiled(this.rng, deptCache[key]);
+    }
+
+    // Step 4: KTAS
+    progress(35, 'KTAS...');
+    var ktasP = this.P.ktas_distributions;
+    var ktasCache = {};
+    for (var i = 0; i < n; i++) {
+      var region = pat_do_cd[i];
+      if (!ktasCache[region]) {
+        ktasCache[region] = hierarchicalKtasLookup(ktasP, region, 'medium', this.cache);
+      }
+      var kval = sampleCompiled(this.rng, ktasCache[region]);
+      ktas_fstu[i] = kval;
+      ktas01[i] = parseInt(kval) || 3;
+    }
+
+    // Step 4b: Treatment result
+    progress(40, 'Treatment results...');
+    var trp = this.P.treatment_result_patterns;
+    var trKeys0 = Object.keys(trp)[0];
+    var trCache = {};
+    for (var i = 0; i < n; i++) {
+      var trKey = ktas_fstu[i] + '_' + pat_age_gr[i];
+      if (!trCache[trKey]) trCache[trKey] = compileDist(trp[trKey] || trp[trKeys0]);
+      emtrt_rust[i] = sampleCompiled(this.rng, trCache[trKey]);
+    }
+
+    // Step 5: Vital signs
+    progress(50, 'Vital signs...');
+    this._genVitals(n, ktas_fstu, pat_age_gr, vst_sbp, vst_dbp, vst_per_pu, vst_per_br, vst_bdht, vst_oxy);
+
+    // Step 6: Date/Time
+    progress(65, 'Date/Time...');
+    this._assignDateTime2(n, year, pat_age_gr, pat_sex, ktas_fstu, vst_dt, vst_tm);
+
+    // Step 7: Time gaps
+    progress(80, 'Time gaps...');
+    this._genTimeGaps(n, ktas_fstu, emtrt_rust, vst_dt, vst_tm, ocur_dt, ocur_tm, otrm_dt, otrm_tm, inpat_dt, inpat_tm, inpat_rust);
+
+    // Step 8: Build records
+    progress(95, 'Building records...');
     var records = new Array(n);
-    for (var i = 0; i < n; i++) records[i] = {};
-
-    progress(5, 'Generating demographics...');
-    this._generateDemographics(records, n);
-
-    progress(15, 'Assigning hospitals...');
-    this._assignHospitals(records, n);
-
-    progress(25, 'Generating clinical attributes...');
-    this._generateClinicalIndependent(records, n);
-
-    progress(35, 'Generating KTAS & treatment results...');
-    this._generateKTAS(records, n);
-    this._generateTreatmentResult(records, n);
-
-    progress(50, 'Generating vital signs...');
-    this._generateVitalSigns(records, n);
-
-    progress(65, 'Assigning dates and times...');
-    this._assignDateTime(records, n, year);
-
-    progress(80, 'Computing time gaps...');
-    this._generateTimeGaps(records, n);
-
-    progress(95, 'Assigning IDs...');
-    this._assignIDs(records, n);
-
+    for (var i = 0; i < n; i++) {
+      var bdht = vst_bdht[i];
+      records[i] = {
+        index_key: 'SYNTH_' + String(offsetId + i + 1).padStart(8, '0'),
+        emorg_cd: emorg_cd[i],
+        pat_reg_no: 'P' + String(this.rng.randInt(10000000, 99999999)),
+        vst_dt: vst_dt[i], vst_tm: vst_tm[i],
+        pat_age_gr: pat_age_gr[i], pat_sex: pat_sex[i], pat_do_cd: pat_do_cd[i],
+        vst_meth: vst_meth[i], ktas_fstu: ktas_fstu[i], ktas01: ktas01[i],
+        msypt: msypt[i], main_trt_p: main_trt_p[i], emtrt_rust: emtrt_rust[i],
+        otrm_dt: otrm_dt[i], otrm_tm: otrm_tm[i],
+        ocur_dt: ocur_dt[i], ocur_tm: ocur_tm[i],
+        vst_sbp: vst_sbp[i], vst_dbp: vst_dbp[i],
+        vst_per_pu: vst_per_pu[i], vst_per_br: vst_per_br[i],
+        vst_bdht: bdht === 0 ? -1 : Math.round(bdht * 10) / 10,
+        vst_oxy: vst_oxy[i],
+        inpat_dt: inpat_dt[i] || '', inpat_tm: inpat_tm[i] || '', inpat_rust: inpat_rust[i] || ''
+      };
+    }
     progress(100, 'Complete');
     return records;
   };
 
-  // ---- Step 1: Demographics ----
-  NEDISGenerator.prototype._generateDemographics = function(records, n) {
-    var dp = this.P.demographic_patterns;
-    var da = dictToArrays(dp);
-    var samples = multinomialSample(this.rng, da.items, da.probs, n);
-
-    var rp = this.P.regional_patterns;
-    var regionKeys = Object.keys(rp).filter(function(k) { return k !== ''; });
-    var regionVisits = regionKeys.map(function(k) { return rp[k].total_visits; });
-    var regionTotal = regionVisits.reduce(function(a, b) { return a + b; }, 0);
-    var regionNorm = regionVisits.map(function(p) { return p / regionTotal; });
-    var regionSamples = multinomialSample(this.rng, regionKeys, regionNorm, n);
-
-    for (var i = 0; i < n; i++) {
-      var parts = samples[i].split('_');
-      records[i].pat_age_gr = parts[0];
-      records[i].pat_sex = parts[1] === 'M' ? '1' : '2';
-      records[i].pat_do_cd = regionSamples[i];
-    }
-  };
-
-  // ---- Step 2: Hospital assignment ----
-  NEDISGenerator.prototype._assignHospitals = function(records, n) {
-    var ha = this.P.hospital_allocation;
-    for (var i = 0; i < n; i++) {
-      var region = records[i].pat_do_cd;
-      var hospProbs = ha.patterns[region];
-      if (!hospProbs) {
-        var major = region.substring(0, 2);
-        hospProbs = ha.hierarchical_fallback[major] || ha.patterns[''] || null;
-      }
-      if (!hospProbs) {
-        var anyKey = Object.keys(ha.patterns)[0];
-        hospProbs = ha.patterns[anyKey];
-      }
-      var da = dictToArrays(hospProbs);
-      records[i].emorg_cd = weightedSample(this.rng, da.items, da.probs);
-    }
-  };
-
-  // ---- Step 3: Clinical independent ----
-  NEDISGenerator.prototype._generateClinicalIndependent = function(records, n) {
-    var vm = this.P.visit_method_patterns;
-    var cc = this.P.chief_complaint_patterns;
-    var dept = this.P.department_patterns;
-    var vmKeys = Object.keys(vm);
-    var ccKeys = Object.keys(cc);
-    var deptKeys = Object.keys(dept);
-
-    for (var i = 0; i < n; i++) {
-      var age = records[i].pat_age_gr;
-      var sex = records[i].pat_sex === '1' ? 'M' : 'F';
-      var key = age + '_' + sex;
-
-      // Visit method
-      var vmData = vm[age] || vm[vmKeys[0]];
-      var d1 = dictToArrays(vmData);
-      records[i].vst_meth = weightedSample(this.rng, d1.items, d1.probs);
-
-      // Chief complaint
-      var ccData = cc[key] || cc[ccKeys[0]];
-      var d2 = dictToArrays(ccData);
-      records[i].msypt = weightedSample(this.rng, d2.items, d2.probs);
-
-      // Department
-      var deptData = dept[key] || dept[deptKeys[0]];
-      var d3 = dictToArrays(deptData);
-      records[i].main_trt_p = weightedSample(this.rng, d3.items, d3.probs);
-    }
-  };
-
-  // ---- Step 4a: KTAS ----
-  NEDISGenerator.prototype._generateKTAS = function(records, n) {
-    var ktasP = this.P.ktas_distributions;
-    for (var i = 0; i < n; i++) {
-      var region = records[i].pat_do_cd;
-      var hospitalType = 'medium';
-      var dist = hierarchicalKtasLookup(ktasP, region, hospitalType);
-      if (dist && Object.keys(dist).length > 0) {
-        var da = dictToArrays(dist);
-        var ktas = weightedSample(this.rng, da.items, da.probs);
-        records[i].ktas_fstu = String(ktas);
-        records[i].ktas01 = parseInt(ktas) || 3;
-      } else {
-        records[i].ktas_fstu = '3';
-        records[i].ktas01 = 3;
-      }
-    }
-  };
-
-  // ---- Step 4b: Treatment result ----
-  NEDISGenerator.prototype._generateTreatmentResult = function(records, n) {
-    var trp = this.P.treatment_result_patterns;
-    var trKeys = Object.keys(trp);
-    for (var i = 0; i < n; i++) {
-      var ktas = records[i].ktas_fstu;
-      var age = records[i].pat_age_gr;
-      var key = ktas + '_' + age;
-      var dist = trp[key] || trp[trKeys[0]];
-      var da = dictToArrays(dist);
-      records[i].emtrt_rust = weightedSample(this.rng, da.items, da.probs);
-    }
-  };
-
-  // ---- Step 5: Vital signs ----
-  NEDISGenerator.prototype._generateVitalSigns = function(records, n) {
+  // ---- Vital signs (columnar) ----
+  NEDISGenerator.prototype._genVitals = function(n, ktas, age, sbpArr, dbpArr, puArr, brArr, bdhtArr, oxyArr) {
     var measProb = { '1': 1.0, '2': 0.95, '3': 0.85, '4': 0.70, '5': 0.50 };
-    var ageRanges = {
-      '01': { sbp: [75, 12], dbp: [50, 8], pulse: [130, 20], resp: [35, 8], temp: [36.8, 0.3] },
-      '09': { sbp: [95, 10], dbp: [60, 8], pulse: [90, 15], resp: [22, 4], temp: [36.7, 0.3] },
-      '10': { sbp: [110, 12], dbp: [70, 8], pulse: [80, 12], resp: [18, 3], temp: [36.6, 0.3] },
-      '20': { sbp: [120, 12], dbp: [75, 8], pulse: [75, 10], resp: [16, 2], temp: [36.5, 0.3] },
-      '30': { sbp: [122, 12], dbp: [78, 8], pulse: [74, 10], resp: [16, 2], temp: [36.5, 0.3] },
-      '40': { sbp: [126, 14], dbp: [80, 9], pulse: [74, 10], resp: [16, 2], temp: [36.5, 0.3] },
-      '50': { sbp: [130, 16], dbp: [82, 10], pulse: [73, 10], resp: [16, 2], temp: [36.4, 0.3] },
-      '60': { sbp: [135, 18], dbp: [80, 10], pulse: [72, 10], resp: [17, 3], temp: [36.3, 0.3] },
-      '70': { sbp: [138, 20], dbp: [78, 10], pulse: [72, 12], resp: [17, 3], temp: [36.2, 0.4] },
-      '80': { sbp: [140, 22], dbp: [76, 10], pulse: [73, 12], resp: [18, 3], temp: [36.1, 0.4] },
-      '90': { sbp: [138, 24], dbp: [74, 12], pulse: [75, 14], resp: [18, 4], temp: [36.0, 0.5] }
+    var ageR = {
+      '01':[75,12,50,8,130,20,35,8,36.8,0.3],'09':[95,10,60,8,90,15,22,4,36.7,0.3],
+      '10':[110,12,70,8,80,12,18,3,36.6,0.3],'20':[120,12,75,8,75,10,16,2,36.5,0.3],
+      '30':[122,12,78,8,74,10,16,2,36.5,0.3],'40':[126,14,80,9,74,10,16,2,36.5,0.3],
+      '50':[130,16,82,10,73,10,16,2,36.4,0.3],'60':[135,18,80,10,72,10,17,3,36.3,0.3],
+      '70':[138,20,78,10,72,12,17,3,36.2,0.4],'80':[140,22,76,10,73,12,18,3,36.1,0.4],
+      '90':[138,24,74,12,75,14,18,4,36.0,0.5]
     };
-    var abnormalProb = {
-      hypotension:  { '1': 0.15, '2': 0.08, '3': 0.03, '4': 0.01, '5': 0.005 },
-      hypertension: { '1': 0.10, '2': 0.12, '3': 0.15, '4': 0.10, '5': 0.05 },
-      tachycardia:  { '1': 0.20, '2': 0.12, '3': 0.06, '4': 0.03, '5': 0.02 },
-      bradycardia:  { '1': 0.08, '2': 0.04, '3': 0.02, '4': 0.01, '5': 0.005 },
-      tachypnea:    { '1': 0.25, '2': 0.15, '3': 0.08, '4': 0.03, '5': 0.02 },
-      fever:        { '1': 0.12, '2': 0.10, '3': 0.15, '4': 0.12, '5': 0.08 },
-      hypothermia:  { '1': 0.05, '2': 0.02, '3': 0.01, '4': 0.005, '5': 0.002 },
-      hypoxia:      { '1': 0.30, '2': 0.15, '3': 0.06, '4': 0.02, '5': 0.01 }
-    };
-
+    var defAR = ageR['40'];
     var rng = this.rng;
-    for (var i = 0; i < n; i++) {
-      var ktas = records[i].ktas_fstu;
-      var age = records[i].pat_age_gr;
-      var mp = measProb[ktas] || 0.7;
-      var ar = ageRanges[age] || ageRanges['40'];
 
-      // SBP
+    for (var i = 0; i < n; i++) {
+      var k = ktas[i];
+      var mp = measProb[k] || 0.7;
+      var ar = ageR[age[i]] || defAR;
+
+      // SBP/DBP
       if (rng.random() < mp) {
         var sbp;
-        if (rng.random() < (abnormalProb.hypotension[ktas] || 0.01)) {
-          sbp = clamp(Math.round(normalSample(rng, 75, 15)), 40, 90);
-        } else if (rng.random() < (abnormalProb.hypertension[ktas] || 0.05)) {
-          sbp = clamp(Math.round(normalSample(rng, 180, 25)), 160, 250);
-        } else {
-          sbp = clamp(Math.round(normalSample(rng, ar.sbp[0], ar.sbp[1])), 60, 220);
-        }
-        records[i].vst_sbp = sbp;
-        var dbpRatio = 0.60 + rng.random() * 0.15;
-        records[i].vst_dbp = clamp(Math.round(sbp * dbpRatio + normalSample(rng, 0, 5)), 30, sbp - 20);
-      } else {
-        records[i].vst_sbp = -1;
-        records[i].vst_dbp = -1;
-      }
+        var r1 = rng.random(), r2 = rng.random();
+        if (r1 < 0.03) { sbp = clamp(Math.round(normalSample(rng, 75, 15)), 40, 90); }
+        else if (r2 < 0.10) { sbp = clamp(Math.round(normalSample(rng, 180, 25)), 160, 250); }
+        else { sbp = clamp(Math.round(normalSample(rng, ar[0], ar[1])), 60, 220); }
+        sbpArr[i] = sbp;
+        dbpArr[i] = clamp(Math.round(sbp * (0.60 + rng.random() * 0.15) + normalSample(rng, 0, 5)), 30, sbp - 20);
+      } else { sbpArr[i] = -1; dbpArr[i] = -1; }
 
       // Pulse
       if (rng.random() < mp) {
-        var pulse;
-        if (rng.random() < (abnormalProb.tachycardia[ktas] || 0.03)) {
-          pulse = clamp(Math.round(normalSample(rng, 120, 20)), 100, 200);
-        } else if (rng.random() < (abnormalProb.bradycardia[ktas] || 0.01)) {
-          pulse = clamp(Math.round(normalSample(rng, 45, 10)), 30, 60);
-        } else {
-          pulse = clamp(Math.round(normalSample(rng, ar.pulse[0], ar.pulse[1])), 30, 200);
-        }
-        records[i].vst_per_pu = pulse;
-      } else {
-        records[i].vst_per_pu = -1;
-      }
+        var r3 = rng.random(), r4 = rng.random();
+        if (r3 < 0.06) puArr[i] = clamp(Math.round(normalSample(rng, 120, 20)), 100, 200);
+        else if (r4 < 0.02) puArr[i] = clamp(Math.round(normalSample(rng, 45, 10)), 30, 60);
+        else puArr[i] = clamp(Math.round(normalSample(rng, ar[4], ar[5])), 30, 200);
+      } else { puArr[i] = -1; }
 
       // Respiration
       if (rng.random() < mp * 0.9) {
-        var resp;
-        if (rng.random() < (abnormalProb.tachypnea[ktas] || 0.03)) {
-          var ageFactor = age === '01' ? 1.3 : (age === '09' ? 1.2 : 1.0);
-          resp = clamp(Math.round(ar.resp[0] * 1.8 * ageFactor), 22, 60);
-        } else {
-          resp = clamp(Math.round(normalSample(rng, ar.resp[0], ar.resp[1])), 8, 50);
-        }
-        records[i].vst_per_br = resp;
-      } else {
-        records[i].vst_per_br = -1;
-      }
+        if (rng.random() < 0.05) {
+          var af = age[i] === '01' ? 1.3 : (age[i] === '09' ? 1.2 : 1.0);
+          brArr[i] = clamp(Math.round(ar[6] * 1.8 * af), 22, 60);
+        } else { brArr[i] = clamp(Math.round(normalSample(rng, ar[6], ar[7])), 8, 50); }
+      } else { brArr[i] = -1; }
 
       // Temperature
       if (rng.random() < mp * 0.8) {
         var temp;
-        if (rng.random() < (abnormalProb.fever[ktas] || 0.10)) {
-          var sev = rng.random();
-          if (sev < 0.5) temp = normalSample(rng, 38.0, 0.3);
-          else if (sev < 0.85) temp = normalSample(rng, 39.0, 0.4);
+        if (rng.random() < 0.12) {
+          var sv = rng.random();
+          if (sv < 0.5) temp = normalSample(rng, 38.0, 0.3);
+          else if (sv < 0.85) temp = normalSample(rng, 39.0, 0.4);
           else temp = normalSample(rng, 40.0, 0.5);
           temp = clamp(temp, 37.5, 42.0);
-        } else if (rng.random() < (abnormalProb.hypothermia[ktas] || 0.005)) {
+        } else if (rng.random() < 0.01) {
           temp = clamp(normalSample(rng, 34.5, 0.8), 32.0, 36.0);
-        } else {
-          temp = clamp(normalSample(rng, ar.temp[0], ar.temp[1]), 35.0, 37.5);
-        }
-        records[i].vst_bdht = Math.round(temp * 10) / 10;
-      } else {
-        records[i].vst_bdht = -1;
-      }
+        } else { temp = clamp(normalSample(rng, ar[8], ar[9]), 35.0, 37.5); }
+        bdhtArr[i] = temp;
+      } else { bdhtArr[i] = 0; } // 0 = not measured, converted to -1 in record build
 
       // SpO2
       if (rng.random() < mp * 0.7) {
-        var spo2;
-        if (rng.random() < (abnormalProb.hypoxia[ktas] || 0.02)) {
-          var sev2 = rng.random();
-          if (sev2 < 0.5) spo2 = normalSample(rng, 92, 2);
-          else if (sev2 < 0.85) spo2 = normalSample(rng, 87, 3);
-          else spo2 = normalSample(rng, 80, 5);
-          spo2 = clamp(Math.round(spo2), 50, 95);
-        } else {
-          spo2 = clamp(Math.round(normalSample(rng, 98, 1.5)), 90, 100);
-        }
-        records[i].vst_oxy = spo2;
-      } else {
-        records[i].vst_oxy = -1;
-      }
+        if (rng.random() < 0.04) {
+          var sv2 = rng.random();
+          if (sv2 < 0.5) oxyArr[i] = clamp(Math.round(normalSample(rng, 92, 2)), 50, 95);
+          else if (sv2 < 0.85) oxyArr[i] = clamp(Math.round(normalSample(rng, 87, 3)), 50, 95);
+          else oxyArr[i] = clamp(Math.round(normalSample(rng, 80, 5)), 50, 95);
+        } else { oxyArr[i] = clamp(Math.round(normalSample(rng, 98, 1.5)), 90, 100); }
+      } else { oxyArr[i] = -1; }
     }
   };
 
-  // ---- Step 6: Date/Time assignment ----
-  NEDISGenerator.prototype._assignDateTime = function(records, n, year) {
-    var tp = this.P.temporal_patterns;
-    var ctp = this.P.temporal_conditional_patterns;
-
+  // ---- Date/Time (optimized) ----
+  NEDISGenerator.prototype._assignDateTime2 = function(n, year, ages, sexes, ktasFstu, dtArr, tmArr) {
     var isLeap = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
     var daysInYear = isLeap ? 366 : 365;
 
-    var dates = [];
+    // Pre-compute date strings and metadata
+    var dateStrs = new Array(daysInYear);
+    var dateMonths = new Int8Array(daysInYear);
+    var dateDows = new Int8Array(daysInYear);
+    var jsToPyDow = [6, 0, 1, 2, 3, 4, 5];
+
     for (var d = 0; d < daysInYear; d++) {
       var dt = new Date(year, 0, 1 + d);
-      dates.push({
-        month: dt.getMonth() + 1,
-        dow: dt.getDay(),
-        dateStr: String(year) + String(dt.getMonth() + 1).padStart(2, '0') + String(dt.getDate()).padStart(2, '0')
-      });
+      var m = dt.getMonth() + 1;
+      var day = dt.getDate();
+      dateStrs[d] = String(year) + (m < 10 ? '0' : '') + m + (day < 10 ? '0' : '') + day;
+      dateMonths[d] = m;
+      dateDows[d] = jsToPyDow[dt.getDay()];
     }
 
-    var monthlyP = tp.monthly_pattern || {};
-    var weekdayP = tp.weekday_pattern || {};
-    var jsToPythonDow = [6, 0, 1, 2, 3, 4, 5];
-
-    var monthlyVals = Object.values(monthlyP);
-    var weekdayVals = Object.values(weekdayP);
-    var monthlyMean = monthlyVals.length > 0 ? monthlyVals.reduce(function(a,b){return a+b},0) / 12 : 1/12;
-    var weekdayMean = weekdayVals.length > 0 ? weekdayVals.reduce(function(a,b){return a+b},0) / 7 : 1/7;
+    // Compute daily volumes
+    var mp = this._monthlyP;
+    var wp = this._weekdayP;
+    var mVals = Object.values(mp);
+    var wVals = Object.values(wp);
+    var mMean = mVals.length > 0 ? mVals.reduce(function(a,b){return a+b},0) / 12 : 1/12;
+    var wMean = wVals.length > 0 ? wVals.reduce(function(a,b){return a+b},0) / 7 : 1/7;
 
     var weights = new Float64Array(daysInYear);
+    var totalW = 0;
     for (var d = 0; d < daysInYear; d++) {
-      var mMult = (monthlyP[String(dates[d].month)] || monthlyMean) / monthlyMean;
-      var pyDow = jsToPythonDow[dates[d].dow];
-      var wMult = (weekdayP[String(pyDow)] || weekdayMean) / weekdayMean;
+      var mMult = (mp[String(dateMonths[d])] || mMean) / mMean;
+      var wMult = (wp[String(dateDows[d])] || wMean) / wMean;
       weights[d] = mMult * wMult;
+      totalW += weights[d];
     }
 
-    var totalWeight = 0;
-    for (var d = 0; d < daysInYear; d++) totalWeight += weights[d];
-    var dailyVolumes = new Int32Array(daysInYear);
+    var dailyVols = new Int32Array(daysInYear);
     var assigned = 0;
     for (var d = 0; d < daysInYear; d++) {
-      dailyVolumes[d] = Math.max(1, Math.round(n * weights[d] / totalWeight));
-      assigned += dailyVolumes[d];
+      dailyVols[d] = Math.max(1, Math.round(n * weights[d] / totalW));
+      assigned += dailyVols[d];
     }
+    var rng = this.rng;
     while (assigned !== n) {
-      var idx = this.rng.randInt(0, daysInYear - 1);
-      if (assigned < n) { dailyVolumes[idx]++; assigned++; }
-      else if (dailyVolumes[idx] > 1) { dailyVolumes[idx]--; assigned--; }
+      var idx = rng.randInt(0, daysInYear - 1);
+      if (assigned < n) { dailyVols[idx]++; assigned++; }
+      else if (dailyVols[idx] > 1) { dailyVols[idx]--; assigned--; }
     }
 
+    // Assign dates
     var ri = 0;
+    var recMonth = new Int8Array(n);
+    var recDow = new Int8Array(n);
     for (var d = 0; d < daysInYear && ri < n; d++) {
-      var vol = dailyVolumes[d];
+      var vol = dailyVols[d];
+      var ds = dateStrs[d];
+      var dm = dateMonths[d];
+      var dd = dateDows[d];
       for (var j = 0; j < vol && ri < n; j++) {
-        records[ri].vst_dt = dates[d].dateStr;
-        records[ri]._month = dates[d].month;
-        records[ri]._dow = jsToPythonDow[dates[d].dow];
+        dtArr[ri] = ds;
+        recMonth[ri] = dm;
+        recDow[ri] = dd;
         ri++;
       }
     }
 
-    var hourlyP = tp.hourly_pattern || {};
+    // Assign hours using cached conditional temporal dists
+    var ctc = this._condTemporalCache;
+    var hourlyD = this._hourlyDist;
+
     for (var i = 0; i < n; i++) {
-      var hourDist = null;
-      if (ctp && ctp.month_dow_hour) {
-        var mdKey = records[i]._month + '_' + records[i]._dow;
-        if (ctp.month_dow_hour[mdKey]) hourDist = ctp.month_dow_hour[mdKey];
+      var hd = null;
+      if (ctc.month_dow_hour) {
+        hd = ctc.month_dow_hour[recMonth[i] + '_' + recDow[i]];
       }
-      if (!hourDist && ctp && ctp.month_hour) {
-        var mKey = String(records[i]._month);
-        if (ctp.month_hour[mKey]) hourDist = ctp.month_hour[mKey];
+      if (!hd && ctc.month_hour) {
+        hd = ctc.month_hour[String(recMonth[i])];
       }
-      if (!hourDist && ctp && ctp.dow_hour) {
-        var dKey = String(records[i]._dow);
-        if (ctp.dow_hour[dKey]) hourDist = ctp.dow_hour[dKey];
+      if (!hd && ctc.dow_hour) {
+        hd = ctc.dow_hour[String(recDow[i])];
       }
-      if (!hourDist) hourDist = hourlyP;
+      if (!hd) hd = hourlyD;
 
-      if (hourDist && Object.keys(hourDist).length > 0) {
-        var da = dictToArrays(hourDist);
-        var hour = weightedSample(this.rng, da.items, da.probs);
-        var minute = this.rng.randInt(0, 59);
-        records[i].vst_tm = String(hour).padStart(2, '0') + String(minute).padStart(2, '0');
+      var hour, minute;
+      if (hd) {
+        hour = sampleCompiled(rng, hd);
+        minute = rng.randInt(0, 59);
       } else {
-        var h = this.rng.randInt(0, 23);
-        var m = this.rng.randInt(0, 59);
-        records[i].vst_tm = String(h).padStart(2, '0') + String(m).padStart(2, '0');
+        hour = rng.randInt(0, 23);
+        minute = rng.randInt(0, 59);
       }
-
-      delete records[i]._month;
-      delete records[i]._dow;
+      var h = parseInt(hour);
+      tmArr[i] = (h < 10 ? '0' : '') + h + (minute < 10 ? '0' : '') + minute;
     }
   };
 
-  // ---- Step 7: Time gaps ----
-  NEDISGenerator.prototype._generateTimeGaps = function(records, n) {
+  // ---- Time gaps (optimized) ----
+  NEDISGenerator.prototype._genTimeGaps = function(n, ktas, result, vstDt, vstTm, ocDt, ocTm, otDt, otTm, inDt, inTm, inRust) {
     var compTime = this.P.comprehensive_time_patterns;
     var tgp = this.P.time_gap_patterns;
     var rng = this.rng;
 
+    // Pre-cache admission result distributions
+    var admDists = {};
+    var admProbs = {
+      '1':{'1':0.3,'2':0.3,'3':0.1,'4':0.3},'2':{'1':0.4,'2':0.35,'3':0.15,'4':0.1},
+      '3':{'1':0.5,'2':0.35,'3':0.1,'4':0.05},'4':{'1':0.55,'2':0.35,'3':0.08,'4':0.02},
+      '5':{'1':0.6,'2':0.3,'3':0.08,'4':0.02}
+    };
+    for (var k in admProbs) admDists[k] = compileDist(admProbs[k]);
+
+    // Gap param cache
+    var gapParamCache = {};
+    function getGapParams(kt, res, gapName) {
+      var ck = kt + '|' + res + '|' + gapName;
+      if (gapParamCache[ck] !== undefined) return gapParamCache[ck];
+      var p = hierarchicalTimeGapLookup(compTime, kt, res, gapName);
+      if (!p) {
+        var flatKey = 'ktas_' + kt + '_result_' + res;
+        if (tgp[flatKey] && tgp[flatKey][gapName]) p = tgp[flatKey][gapName];
+      }
+      gapParamCache[ck] = p;
+      return p;
+    }
+
+    var erDefaults = {'1':240,'2':210,'3':180,'4':150,'5':120};
+    var incDefaults = {'1':30,'2':45,'3':60,'4':90,'5':120};
+
     for (var i = 0; i < n; i++) {
-      var ktas = records[i].ktas_fstu;
-      var result = records[i].emtrt_rust;
-      var vstDt = records[i].vst_dt;
-      var vstTm = records[i].vst_tm;
+      var kt = ktas[i];
+      var res = result[i];
+      var yr = parseInt(vstDt[i].substring(0, 4));
+      var mo = parseInt(vstDt[i].substring(4, 6)) - 1;
+      var dy = parseInt(vstDt[i].substring(6, 8));
+      var hr = parseInt(vstTm[i].substring(0, 2));
+      var mn = parseInt(vstTm[i].substring(2, 4));
+      var baseMs = new Date(yr, mo, dy, hr, mn).getTime();
 
-      var yr = parseInt(vstDt.substring(0, 4));
-      var mo = parseInt(vstDt.substring(4, 6)) - 1;
-      var dy = parseInt(vstDt.substring(6, 8));
-      var hr = parseInt(vstTm.substring(0, 2));
-      var mn = parseInt(vstTm.substring(2, 4));
-      var baseTime = new Date(yr, mo, dy, hr, mn);
-
-      var getGapParams = function(gapName) {
-        var p = hierarchicalTimeGapLookup(compTime, ktas, result, gapName);
-        if (p) return p;
-        var flatKey = 'ktas_' + ktas + '_result_' + result;
-        if (tgp[flatKey] && tgp[flatKey][gapName]) return tgp[flatKey][gapName];
-        return null;
-      };
-
-      var sampleGap = function(gapName, maxHrs) {
-        var params = getGapParams(gapName);
-        var minutes;
-        if (params && params.shape && params.scale) {
-          minutes = lognormSample(rng, params.shape, params.loc || 0, params.scale);
-        } else {
-          var defaults = { '1': 30, '2': 45, '3': 60, '4': 90, '5': 120 };
-          var mean = defaults[ktas] || 60;
-          minutes = Math.abs(normalSample(rng, mean, mean * 0.3));
-        }
-        return clamp(minutes, 1, (maxHrs || 168) * 60);
-      };
-
-      // Incident to arrival
-      var incidentGap = sampleGap('incident_to_arrival', 72);
-      var ocurTime = new Date(baseTime.getTime() - incidentGap * 60000);
-      records[i].ocur_dt = formatDate(ocurTime);
-      records[i].ocur_tm = formatTime(ocurTime);
+      // Incident gap
+      var p1 = getGapParams(kt, res, 'incident_to_arrival');
+      var incMin;
+      if (p1 && p1.shape && p1.scale) incMin = lognormSample(rng, p1.shape, p1.loc||0, p1.scale);
+      else incMin = Math.abs(normalSample(rng, incDefaults[kt]||60, 20));
+      incMin = clamp(incMin, 1, 4320);
+      var ocT = new Date(baseMs - incMin * 60000);
+      ocDt[i] = formatDate(ocT);
+      ocTm[i] = formatTime(ocT);
 
       // ER stay
-      var erStayParams = getGapParams('er_stay');
-      var erStayMin;
-      if (erStayParams && erStayParams.shape && erStayParams.scale) {
-        erStayMin = lognormSample(rng, erStayParams.shape, erStayParams.loc || 0, erStayParams.scale);
-      } else {
-        var erDefaults = { '1': 240, '2': 210, '3': 180, '4': 150, '5': 120 };
-        erStayMin = Math.abs(normalSample(rng, erDefaults[ktas] || 180, 60));
-      }
-      erStayMin = clamp(erStayMin, 10, 168 * 60);
-      var otrmTime = new Date(baseTime.getTime() + erStayMin * 60000);
-      records[i].otrm_dt = formatDate(otrmTime);
-      records[i].otrm_tm = formatTime(otrmTime);
+      var p2 = getGapParams(kt, res, 'er_stay');
+      var erMin;
+      if (p2 && p2.shape && p2.scale) erMin = lognormSample(rng, p2.shape, p2.loc||0, p2.scale);
+      else erMin = Math.abs(normalSample(rng, erDefaults[kt]||180, 60));
+      erMin = clamp(erMin, 10, 10080);
+      var otT = new Date(baseMs + erMin * 60000);
+      otDt[i] = formatDate(otT);
+      otTm[i] = formatTime(otT);
 
       // Admission
-      var admissionCodes = ['31', '32', '33', '34'];
-      if (admissionCodes.indexOf(result) >= 0) {
-        var admGap = sampleGap('discharge_to_admission', 48);
-        var inpatTime = new Date(otrmTime.getTime() + admGap * 60000);
-        records[i].inpat_dt = formatDate(inpatTime);
-        records[i].inpat_tm = formatTime(inpatTime);
-        records[i].inpat_rust = this._sampleAdmissionResult(ktas);
-      } else {
-        records[i].inpat_dt = '';
-        records[i].inpat_tm = '';
-        records[i].inpat_rust = '';
+      if (res === '31' || res === '32' || res === '33' || res === '34') {
+        var p3 = getGapParams(kt, res, 'discharge_to_admission');
+        var admMin;
+        if (p3 && p3.shape && p3.scale) admMin = lognormSample(rng, p3.shape, p3.loc||0, p3.scale);
+        else admMin = Math.abs(normalSample(rng, 60, 30));
+        admMin = clamp(admMin, 1, 2880);
+        var inT = new Date(otT.getTime() + admMin * 60000);
+        inDt[i] = formatDate(inT);
+        inTm[i] = formatTime(inT);
+        inRust[i] = sampleCompiled(rng, admDists[kt] || admDists['3']);
       }
-    }
-  };
-
-  NEDISGenerator.prototype._sampleAdmissionResult = function(ktas) {
-    var probs = {
-      '1': { '1': 0.3, '2': 0.3, '3': 0.1, '4': 0.3 },
-      '2': { '1': 0.4, '2': 0.35, '3': 0.15, '4': 0.1 },
-      '3': { '1': 0.5, '2': 0.35, '3': 0.1, '4': 0.05 },
-      '4': { '1': 0.55, '2': 0.35, '3': 0.08, '4': 0.02 },
-      '5': { '1': 0.6, '2': 0.3, '3': 0.08, '4': 0.02 }
-    };
-    var dist = probs[ktas] || probs['3'];
-    var da = dictToArrays(dist);
-    return weightedSample(this.rng, da.items, da.probs);
-  };
-
-  // ---- Step 8: IDs ----
-  NEDISGenerator.prototype._assignIDs = function(records, n) {
-    for (var i = 0; i < n; i++) {
-      records[i].index_key = 'SYNTH_' + String(i + 1).padStart(8, '0');
-      records[i].pat_reg_no = 'P' + String(this.rng.randInt(10000000, 99999999));
     }
   };
 }
