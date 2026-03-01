@@ -741,34 +741,22 @@ function workerMain() {
       totalW += weights[d];
     }
 
-    var dailyVols = new Int32Array(daysInYear);
-    var assigned = 0;
-    for (var d = 0; d < daysInYear; d++) {
-      dailyVols[d] = Math.max(1, Math.round(n * weights[d] / totalW));
-      assigned += dailyVols[d];
-    }
+    // Build cumulative weight array for date sampling
     var rng = this.rng;
-    while (assigned !== n) {
-      var idx = rng.randInt(0, daysInYear - 1);
-      if (assigned < n) { dailyVols[idx]++; assigned++; }
-      else if (dailyVols[idx] > 1) { dailyVols[idx]--; assigned--; }
-    }
+    var cumWeights = new Float64Array(daysInYear);
+    cumWeights[0] = weights[0] / totalW;
+    for (var d = 1; d < daysInYear; d++) cumWeights[d] = cumWeights[d-1] + weights[d] / totalW;
 
-    // Assign dates
-    var ri = 0;
+    // Sample n dates via binary search on cumulative weights
     var recMonth = new Int8Array(n);
     var recDow = new Int8Array(n);
-    for (var d = 0; d < daysInYear && ri < n; d++) {
-      var vol = dailyVols[d];
-      var ds = dateStrs[d];
-      var dm = dateMonths[d];
-      var dd = dateDows[d];
-      for (var j = 0; j < vol && ri < n; j++) {
-        dtArr[ri] = ds;
-        recMonth[ri] = dm;
-        recDow[ri] = dd;
-        ri++;
-      }
+    for (var i = 0; i < n; i++) {
+      var r = rng.random();
+      var lo = 0, hi = daysInYear - 1;
+      while (lo < hi) { var mid = (lo + hi) >> 1; if (cumWeights[mid] < r) lo = mid + 1; else hi = mid; }
+      dtArr[i] = dateStrs[lo];
+      recMonth[i] = dateMonths[lo];
+      recDow[i] = dateDows[lo];
     }
 
     // Assign hours using cached conditional temporal dists
