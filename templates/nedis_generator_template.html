@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEDIS Synthetic Data Generator</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#fafafa;--fg:#111;--border:#ccc;--accent:#2563eb;--accent-hover:#1d4ed8;--muted:#666;--surface:#fff;--code-bg:#f5f5f5}
+body{font-family:'SF Mono','Fira Code','Cascadia Code',monospace;background:var(--bg);color:var(--fg);line-height:1.5;padding:2rem;max-width:960px;margin:0 auto}
+h1{font-size:1.5rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:.25rem}
+.subtitle{color:var(--muted);font-size:.75rem;margin-bottom:2rem}
+.section{border:1px solid var(--border);padding:1.5rem;margin-bottom:1.5rem;background:var(--surface)}
+.section-title{font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:1rem}
+.form-row{display:flex;gap:1.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.form-group{display:flex;flex-direction:column;gap:.25rem}
+.form-group label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.form-group input{border:1px solid var(--border);padding:.5rem .75rem;font-family:inherit;font-size:.85rem;width:160px;outline:none;transition:border-color .15s}
+.form-group input:focus{border-color:var(--accent)}
+.btn{border:1px solid var(--fg);background:var(--fg);color:var(--bg);padding:.6rem 1.5rem;font-family:inherit;font-size:.85rem;cursor:pointer;font-weight:600;letter-spacing:.02em;transition:all .15s}
+.btn:hover{background:var(--accent);border-color:var(--accent)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-outline{background:transparent;color:var(--fg)}
+.btn-outline:hover{background:var(--fg);color:var(--bg)}
+.actions{display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+.progress-wrap{flex:1;min-width:200px;display:none}
+.progress-bar{height:6px;background:var(--code-bg);overflow:hidden}
+.progress-fill{height:100%;width:0;background:var(--accent);transition:width .2s}
+.progress-text{font-size:.7rem;color:var(--muted);margin-top:.25rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.5rem;margin-top:1rem;display:none}
+.stat-item{font-size:.75rem}
+.stat-label{color:var(--muted)}
+.stat-value{font-weight:700}
+.downloads{display:flex;gap:.75rem;margin-top:1rem;display:none}
+.preview-wrap{max-height:400px;overflow:auto;margin-top:1rem;display:none}
+.preview-wrap table{width:100%;border-collapse:collapse;font-size:.65rem}
+.preview-wrap th,.preview-wrap td{border:1px solid var(--border);padding:.25rem .4rem;text-align:left;white-space:nowrap}
+.preview-wrap th{background:var(--code-bg);position:sticky;top:0;font-weight:700}
+.preview-wrap tr:nth-child(even){background:var(--code-bg)}
+#errorMsg{color:#dc2626;font-size:.75rem;margin-top:.5rem;display:none}
+</style>
+</head>
+<body>
+
+<h1>NEDIS Synthetic Data Generator</h1>
+<p class="subtitle">Browser-based synthetic emergency department data generator &mdash; no server required</p>
+
+<div class="section">
+  <div class="section-title">Settings</div>
+  <div class="form-row">
+    <div class="form-group">
+      <label for="numRecords">Records</label>
+      <input type="number" id="numRecords" value="10000" min="1" max="1000000">
+    </div>
+    <div class="form-group">
+      <label for="targetYear">Year</label>
+      <input type="number" id="targetYear" value="2018" min="2000" max="2030">
+    </div>
+    <div class="form-group">
+      <label for="randomSeed">Seed</label>
+      <input type="number" id="randomSeed" value="42" min="0">
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn" id="btnGenerate" onclick="startGeneration()">Generate</button>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-text" id="progressText">Preparing...</div>
+    </div>
+  </div>
+  <div id="errorMsg"></div>
+</div>
+
+<div class="section" id="resultsSection" style="display:none">
+  <div class="section-title">Results</div>
+  <div class="stats" id="statsGrid"></div>
+  <div class="downloads" id="downloadBtns">
+    <button class="btn btn-outline" onclick="downloadCSV()">CSV Download</button>
+    <button class="btn btn-outline" onclick="downloadJSON()">JSON Download</button>
+  </div>
+  <div class="preview-wrap" id="previewWrap">
+    <table id="previewTable"></table>
+  </div>
+</div>
+
+<!-- patterns.json will be injected here by build script -->
+<script id="patternData" type="application/json">%%PATTERNS_JSON%%</script>
+
+<script>
+// ============================================================
+// GLOBALS
+// ============================================================
+let PATTERNS = null;
+let generatedData = null;
+let worker = null;
+
+try {
+  PATTERNS = JSON.parse(document.getElementById('patternData').textContent);
+} catch(e) {
+  console.error('Failed to parse patterns:', e);
+}
+
+const COLUMNS = [
+  'index_key','emorg_cd','pat_reg_no','vst_dt','vst_tm','pat_age_gr','pat_sex',
+  'pat_do_cd','vst_meth','ktas_fstu','ktas01','msypt','main_trt_p','emtrt_rust',
+  'otrm_dt','otrm_tm','ocur_dt','ocur_tm','vst_sbp','vst_dbp','vst_per_pu',
+  'vst_per_br','vst_bdht','vst_oxy','inpat_dt','inpat_tm','inpat_rust'
+];
+
+// ============================================================
+// UI CONTROL
+// ============================================================
+function showError(msg) {
+  const el = document.getElementById('errorMsg');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = String(str);
+  return div.textContent;
+}
+
+function startGeneration() {
+  const numRecords = parseInt(document.getElementById('numRecords').value) || 10000;
+  const targetYear = parseInt(document.getElementById('targetYear').value) || 2018;
+  const seed = parseInt(document.getElementById('randomSeed').value) || 42;
+
+  if (numRecords < 1 || numRecords > 1000000) {
+    showError('Records must be between 1 and 1,000,000');
+    return;
+  }
+
+  document.getElementById('errorMsg').style.display = 'none';
+  document.getElementById('btnGenerate').disabled = true;
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('progressText').textContent = 'Initializing...';
+  document.getElementById('resultsSection').style.display = 'none';
+
+  const workerCode = `(${workerMain.toString()})()`;
+  const blob = new Blob([workerCode], { type: 'application/javascript' });
+  if (worker) worker.terminate();
+  worker = new Worker(URL.createObjectURL(blob));
+
+  const startTime = performance.now();
+
+  worker.onmessage = function(e) {
+    const msg = e.data;
+    if (msg.type === 'progress') {
+      document.getElementById('progressFill').style.width = msg.pct + '%';
+      document.getElementById('progressText').textContent = msg.label;
+    } else if (msg.type === 'done') {
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+      generatedData = msg.data;
+      document.getElementById('progressFill').style.width = '100%';
+      document.getElementById('progressText').textContent = 'Done in ' + elapsed + 's';
+      document.getElementById('btnGenerate').disabled = false;
+      showResults(generatedData, elapsed);
+      worker.terminate();
+      worker = null;
+    } else if (msg.type === 'error') {
+      showError(msg.message);
+      document.getElementById('btnGenerate').disabled = false;
+      document.getElementById('progressWrap').style.display = 'none';
+    }
+  };
+
+  worker.postMessage({ patterns: PATTERNS, numRecords, targetYear, seed });
+}
+
+function showResults(data, elapsed) {
+  const section = document.getElementById('resultsSection');
+  section.style.display = 'block';
+
+  const statsGrid = document.getElementById('statsGrid');
+  statsGrid.style.display = 'grid';
+  const n = data.length;
+
+  const ktasCounts = {};
+  const sexCounts = { '1': 0, '2': 0 };
+  data.forEach(function(r) {
+    ktasCounts[r.ktas_fstu] = (ktasCounts[r.ktas_fstu] || 0) + 1;
+    sexCounts[r.pat_sex] = (sexCounts[r.pat_sex] || 0) + 1;
+  });
+  const ktasStr = ['1','2','3','4','5'].map(function(k) {
+    return k + '(' + ((ktasCounts[k]||0)/n*100).toFixed(1) + '%)';
+  }).join(' ');
+  const mPct = ((sexCounts['1']/n)*100).toFixed(1);
+  const fPct = ((sexCounts['2']/n)*100).toFixed(1);
+
+  // Build stats using DOM methods
+  statsGrid.textContent = '';
+  var statsHtml = [
+    {label: 'Total:', value: n.toLocaleString()},
+    {label: 'Time:', value: elapsed + 's'},
+    {label: 'Sex:', value: 'M ' + mPct + '% / F ' + fPct + '%'},
+    {label: 'KTAS:', value: ktasStr}
+  ];
+  statsHtml.forEach(function(s) {
+    var div = document.createElement('div');
+    div.className = 'stat-item';
+    var lbl = document.createElement('span');
+    lbl.className = 'stat-label';
+    lbl.textContent = s.label;
+    var val = document.createElement('span');
+    val.className = 'stat-value';
+    val.textContent = ' ' + s.value;
+    div.appendChild(lbl);
+    div.appendChild(val);
+    statsGrid.appendChild(div);
+  });
+
+  document.getElementById('downloadBtns').style.display = 'flex';
+
+  // Preview table (first 20 rows) - built with DOM methods
+  var wrap = document.getElementById('previewWrap');
+  wrap.style.display = 'block';
+  var table = document.getElementById('previewTable');
+  table.textContent = '';
+  var thead = document.createElement('thead');
+  var headRow = document.createElement('tr');
+  COLUMNS.forEach(function(c) {
+    var th = document.createElement('th');
+    th.textContent = c;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+  var tbody = document.createElement('tbody');
+  var preview = data.slice(0, 20);
+  preview.forEach(function(row) {
+    var tr = document.createElement('tr');
+    COLUMNS.forEach(function(c) {
+      var td = document.createElement('td');
+      td.textContent = row[c] != null ? String(row[c]) : '';
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+}
+
+function downloadCSV() {
+  if (!generatedData) return;
+  var csv = COLUMNS.join(',') + '\n';
+  generatedData.forEach(function(row) {
+    csv += COLUMNS.map(function(c) {
+      var v = row[c] != null ? String(row[c]) : '';
+      return v.indexOf(',') >= 0 ? '"' + v + '"' : v;
+    }).join(',') + '\n';
+  });
+  downloadFile(csv, 'nedis_synthetic.csv', 'text/csv');
+}
+
+function downloadJSON() {
+  if (!generatedData) return;
+  downloadFile(JSON.stringify(generatedData, null, 2), 'nedis_synthetic.json', 'application/json');
+}
+
+function downloadFile(content, filename, mime) {
+  var blob = new Blob([content], { type: mime });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// ============================================================
+// WEB WORKER CODE (inlined as function)
+// ============================================================
+function workerMain() {
+  self.onmessage = function(e) {
+    try {
+      var msg = e.data;
+      var gen = new NEDISGenerator(msg.patterns, msg.seed);
+      var data = gen.generate(msg.numRecords, msg.targetYear);
+      self.postMessage({ type: 'done', data: data });
+    } catch(err) {
+      self.postMessage({ type: 'error', message: err.message || String(err) });
+    }
+  };
+
+  function progress(pct, label) {
+    self.postMessage({ type: 'progress', pct: Math.round(pct), label: label });
+  }
+
+  // ========================================
+  // Seeded PRNG: xoshiro128**
+  // ========================================
+  function SeededRNG(seed) {
+    var s = seed >>> 0;
+    function sm() { s = (s + 0x9e3779b9) | 0; var t = s ^ (s >>> 16); t = Math.imul(t, 0x21f0aaad); t ^= t >>> 15; t = Math.imul(t, 0x735a2d97); t ^= t >>> 15; return t >>> 0; }
+    this.s = [sm(), sm(), sm(), sm()];
+  }
+  SeededRNG.prototype._next = function() {
+    var s = this.s;
+    var result = (Math.imul(s[1] * 5, 1 << 7 | 1) >>> 0);
+    var t = s[1] << 9;
+    s[2] ^= s[0]; s[3] ^= s[1]; s[1] ^= s[2]; s[0] ^= s[3];
+    s[2] ^= t;
+    s[3] = (s[3] << 11 | s[3] >>> 21);
+    return result;
+  };
+  SeededRNG.prototype.random = function() { return this._next() / 4294967296; };
+  SeededRNG.prototype.randInt = function(min, max) { return min + Math.floor(this.random() * (max - min + 1)); };
+
+  // ========================================
+  // Statistical utilities
+  // ========================================
+  function weightedSample(rng, items, probs) {
+    var r = rng.random();
+    var cum = 0;
+    for (var i = 0; i < items.length; i++) {
+      cum += probs[i];
+      if (r < cum) return items[i];
+    }
+    return items[items.length - 1];
+  }
+
+  function multinomialSample(rng, items, probs, n) {
+    var result = new Array(n);
+    var cumProbs = new Float64Array(probs.length);
+    cumProbs[0] = probs[0];
+    for (var i = 1; i < probs.length; i++) cumProbs[i] = cumProbs[i-1] + probs[i];
+    var total = cumProbs[cumProbs.length - 1];
+    if (Math.abs(total - 1) > 0.01) {
+      for (var i = 0; i < cumProbs.length; i++) cumProbs[i] /= total;
+    }
+    for (var j = 0; j < n; j++) {
+      var r = rng.random();
+      var lo = 0, hi = cumProbs.length - 1;
+      while (lo < hi) {
+        var mid = (lo + hi) >> 1;
+        if (cumProbs[mid] < r) lo = mid + 1; else hi = mid;
+      }
+      result[j] = items[lo];
+    }
+    return result;
+  }
+
+  function normalSample(rng, mean, std) {
+    var u1 = rng.random() || 1e-10;
+    var u2 = rng.random();
+    var z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    return mean + z * std;
+  }
+
+  function lognormSample(rng, shape, loc, scale) {
+    if (!shape || !scale) return loc || 30;
+    var z = normalSample(rng, 0, 1);
+    return loc + scale * Math.exp(shape * z);
+  }
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  function dictToArrays(dict) {
+    var items = Object.keys(dict);
+    var probs = new Array(items.length);
+    for (var i = 0; i < items.length; i++) probs[i] = dict[items[i]];
+    return { items: items, probs: probs };
+  }
+
+  // ========================================
+  // Hierarchical lookup
+  // ========================================
+  function hierarchicalKtasLookup(ktasPatterns, regionCode, hospitalType) {
+    var key = regionCode + '_' + hospitalType;
+    var majorKey = regionCode.substring(0, 2) + '_' + hospitalType;
+    if (ktasPatterns.detailed_patterns[key]) return ktasPatterns.detailed_patterns[key];
+    if (ktasPatterns.major_patterns[majorKey]) return ktasPatterns.major_patterns[majorKey];
+    if (ktasPatterns.national_patterns && ktasPatterns.national_patterns[hospitalType] &&
+        Object.keys(ktasPatterns.national_patterns[hospitalType]).length > 0)
+      return ktasPatterns.national_patterns[hospitalType];
+    return ktasPatterns.overall_pattern;
+  }
+
+  function hierarchicalTimeGapLookup(compTimePatterns, ktasLevel, resultCode, gapName) {
+    if (!compTimePatterns) return null;
+    var key1 = 'ktas_' + ktasLevel + '_result_' + resultCode;
+    var key2 = 'ktas_' + ktasLevel;
+    if (compTimePatterns.level_1 && compTimePatterns.level_1[key1] && compTimePatterns.level_1[key1][gapName])
+      return compTimePatterns.level_1[key1][gapName];
+    if (compTimePatterns.level_2 && compTimePatterns.level_2[key2] && compTimePatterns.level_2[key2][gapName])
+      return compTimePatterns.level_2[key2][gapName];
+    if (compTimePatterns.level_3 && compTimePatterns.level_3.overall && compTimePatterns.level_3.overall[gapName])
+      return compTimePatterns.level_3.overall[gapName];
+    return null;
+  }
+
+  // ========================================
+  // Date/time formatting
+  // ========================================
+  function formatDate(d) {
+    return String(d.getFullYear()) +
+      String(d.getMonth() + 1).padStart(2, '0') +
+      String(d.getDate()).padStart(2, '0');
+  }
+  function formatTime(d) {
+    return String(d.getHours()).padStart(2, '0') +
+      String(d.getMinutes()).padStart(2, '0');
+  }
+
+  // ========================================
+  // NEDIS Generator
+  // ========================================
+  function NEDISGenerator(patterns, seed) {
+    this.P = patterns;
+    this.rng = new SeededRNG(seed);
+  }
+
+  NEDISGenerator.prototype.generate = function(n, year) {
+    var records = new Array(n);
+    for (var i = 0; i < n; i++) records[i] = {};
+
+    progress(5, 'Generating demographics...');
+    this._generateDemographics(records, n);
+
+    progress(15, 'Assigning hospitals...');
+    this._assignHospitals(records, n);
+
+    progress(25, 'Generating clinical attributes...');
+    this._generateClinicalIndependent(records, n);
+
+    progress(35, 'Generating KTAS & treatment results...');
+    this._generateKTAS(records, n);
+    this._generateTreatmentResult(records, n);
+
+    progress(50, 'Generating vital signs...');
+    this._generateVitalSigns(records, n);
+
+    progress(65, 'Assigning dates and times...');
+    this._assignDateTime(records, n, year);
+
+    progress(80, 'Computing time gaps...');
+    this._generateTimeGaps(records, n);
+
+    progress(95, 'Assigning IDs...');
+    this._assignIDs(records, n);
+
+    progress(100, 'Complete');
+    return records;
+  };
+
+  // ---- Step 1: Demographics ----
+  NEDISGenerator.prototype._generateDemographics = function(records, n) {
+    var dp = this.P.demographic_patterns;
+    var da = dictToArrays(dp);
+    var samples = multinomialSample(this.rng, da.items, da.probs, n);
+
+    var rp = this.P.regional_patterns;
+    var regionKeys = Object.keys(rp).filter(function(k) { return k !== ''; });
+    var regionVisits = regionKeys.map(function(k) { return rp[k].total_visits; });
+    var regionTotal = regionVisits.reduce(function(a, b) { return a + b; }, 0);
+    var regionNorm = regionVisits.map(function(p) { return p / regionTotal; });
+    var regionSamples = multinomialSample(this.rng, regionKeys, regionNorm, n);
+
+    for (var i = 0; i < n; i++) {
+      var parts = samples[i].split('_');
+      records[i].pat_age_gr = parts[0];
+      records[i].pat_sex = parts[1] === 'M' ? '1' : '2';
+      records[i].pat_do_cd = regionSamples[i];
+    }
+  };
+
+  // ---- Step 2: Hospital assignment ----
+  NEDISGenerator.prototype._assignHospitals = function(records, n) {
+    var ha = this.P.hospital_allocation;
+    for (var i = 0; i < n; i++) {
+      var region = records[i].pat_do_cd;
+      var hospProbs = ha.patterns[region];
+      if (!hospProbs) {
+        var major = region.substring(0, 2);
+        hospProbs = ha.hierarchical_fallback[major] || ha.patterns[''] || null;
+      }
+      if (!hospProbs) {
+        var anyKey = Object.keys(ha.patterns)[0];
+        hospProbs = ha.patterns[anyKey];
+      }
+      var da = dictToArrays(hospProbs);
+      records[i].emorg_cd = weightedSample(this.rng, da.items, da.probs);
+    }
+  };
+
+  // ---- Step 3: Clinical independent ----
+  NEDISGenerator.prototype._generateClinicalIndependent = function(records, n) {
+    var vm = this.P.visit_method_patterns;
+    var cc = this.P.chief_complaint_patterns;
+    var dept = this.P.department_patterns;
+    var vmKeys = Object.keys(vm);
+    var ccKeys = Object.keys(cc);
+    var deptKeys = Object.keys(dept);
+
+    for (var i = 0; i < n; i++) {
+      var age = records[i].pat_age_gr;
+      var sex = records[i].pat_sex === '1' ? 'M' : 'F';
+      var key = age + '_' + sex;
+
+      // Visit method
+      var vmData = vm[age] || vm[vmKeys[0]];
+      var d1 = dictToArrays(vmData);
+      records[i].vst_meth = weightedSample(this.rng, d1.items, d1.probs);
+
+      // Chief complaint
+      var ccData = cc[key] || cc[ccKeys[0]];
+      var d2 = dictToArrays(ccData);
+      records[i].msypt = weightedSample(this.rng, d2.items, d2.probs);
+
+      // Department
+      var deptData = dept[key] || dept[deptKeys[0]];
+      var d3 = dictToArrays(deptData);
+      records[i].main_trt_p = weightedSample(this.rng, d3.items, d3.probs);
+    }
+  };
+
+  // ---- Step 4a: KTAS ----
+  NEDISGenerator.prototype._generateKTAS = function(records, n) {
+    var ktasP = this.P.ktas_distributions;
+    for (var i = 0; i < n; i++) {
+      var region = records[i].pat_do_cd;
+      var hospitalType = 'medium';
+      var dist = hierarchicalKtasLookup(ktasP, region, hospitalType);
+      if (dist && Object.keys(dist).length > 0) {
+        var da = dictToArrays(dist);
+        var ktas = weightedSample(this.rng, da.items, da.probs);
+        records[i].ktas_fstu = String(ktas);
+        records[i].ktas01 = parseInt(ktas) || 3;
+      } else {
+        records[i].ktas_fstu = '3';
+        records[i].ktas01 = 3;
+      }
+    }
+  };
+
+  // ---- Step 4b: Treatment result ----
+  NEDISGenerator.prototype._generateTreatmentResult = function(records, n) {
+    var trp = this.P.treatment_result_patterns;
+    var trKeys = Object.keys(trp);
+    for (var i = 0; i < n; i++) {
+      var ktas = records[i].ktas_fstu;
+      var age = records[i].pat_age_gr;
+      var key = ktas + '_' + age;
+      var dist = trp[key] || trp[trKeys[0]];
+      var da = dictToArrays(dist);
+      records[i].emtrt_rust = weightedSample(this.rng, da.items, da.probs);
+    }
+  };
+
+  // ---- Step 5: Vital signs ----
+  NEDISGenerator.prototype._generateVitalSigns = function(records, n) {
+    var measProb = { '1': 1.0, '2': 0.95, '3': 0.85, '4': 0.70, '5': 0.50 };
+    var ageRanges = {
+      '01': { sbp: [75, 12], dbp: [50, 8], pulse: [130, 20], resp: [35, 8], temp: [36.8, 0.3] },
+      '09': { sbp: [95, 10], dbp: [60, 8], pulse: [90, 15], resp: [22, 4], temp: [36.7, 0.3] },
+      '10': { sbp: [110, 12], dbp: [70, 8], pulse: [80, 12], resp: [18, 3], temp: [36.6, 0.3] },
+      '20': { sbp: [120, 12], dbp: [75, 8], pulse: [75, 10], resp: [16, 2], temp: [36.5, 0.3] },
+      '30': { sbp: [122, 12], dbp: [78, 8], pulse: [74, 10], resp: [16, 2], temp: [36.5, 0.3] },
+      '40': { sbp: [126, 14], dbp: [80, 9], pulse: [74, 10], resp: [16, 2], temp: [36.5, 0.3] },
+      '50': { sbp: [130, 16], dbp: [82, 10], pulse: [73, 10], resp: [16, 2], temp: [36.4, 0.3] },
+      '60': { sbp: [135, 18], dbp: [80, 10], pulse: [72, 10], resp: [17, 3], temp: [36.3, 0.3] },
+      '70': { sbp: [138, 20], dbp: [78, 10], pulse: [72, 12], resp: [17, 3], temp: [36.2, 0.4] },
+      '80': { sbp: [140, 22], dbp: [76, 10], pulse: [73, 12], resp: [18, 3], temp: [36.1, 0.4] },
+      '90': { sbp: [138, 24], dbp: [74, 12], pulse: [75, 14], resp: [18, 4], temp: [36.0, 0.5] }
+    };
+    var abnormalProb = {
+      hypotension:  { '1': 0.15, '2': 0.08, '3': 0.03, '4': 0.01, '5': 0.005 },
+      hypertension: { '1': 0.10, '2': 0.12, '3': 0.15, '4': 0.10, '5': 0.05 },
+      tachycardia:  { '1': 0.20, '2': 0.12, '3': 0.06, '4': 0.03, '5': 0.02 },
+      bradycardia:  { '1': 0.08, '2': 0.04, '3': 0.02, '4': 0.01, '5': 0.005 },
+      tachypnea:    { '1': 0.25, '2': 0.15, '3': 0.08, '4': 0.03, '5': 0.02 },
+      fever:        { '1': 0.12, '2': 0.10, '3': 0.15, '4': 0.12, '5': 0.08 },
+      hypothermia:  { '1': 0.05, '2': 0.02, '3': 0.01, '4': 0.005, '5': 0.002 },
+      hypoxia:      { '1': 0.30, '2': 0.15, '3': 0.06, '4': 0.02, '5': 0.01 }
+    };
+
+    var rng = this.rng;
+    for (var i = 0; i < n; i++) {
+      var ktas = records[i].ktas_fstu;
+      var age = records[i].pat_age_gr;
+      var mp = measProb[ktas] || 0.7;
+      var ar = ageRanges[age] || ageRanges['40'];
+
+      // SBP
+      if (rng.random() < mp) {
+        var sbp;
+        if (rng.random() < (abnormalProb.hypotension[ktas] || 0.01)) {
+          sbp = clamp(Math.round(normalSample(rng, 75, 15)), 40, 90);
+        } else if (rng.random() < (abnormalProb.hypertension[ktas] || 0.05)) {
+          sbp = clamp(Math.round(normalSample(rng, 180, 25)), 160, 250);
+        } else {
+          sbp = clamp(Math.round(normalSample(rng, ar.sbp[0], ar.sbp[1])), 60, 220);
+        }
+        records[i].vst_sbp = sbp;
+        var dbpRatio = 0.60 + rng.random() * 0.15;
+        records[i].vst_dbp = clamp(Math.round(sbp * dbpRatio + normalSample(rng, 0, 5)), 30, sbp - 20);
+      } else {
+        records[i].vst_sbp = -1;
+        records[i].vst_dbp = -1;
+      }
+
+      // Pulse
+      if (rng.random() < mp) {
+        var pulse;
+        if (rng.random() < (abnormalProb.tachycardia[ktas] || 0.03)) {
+          pulse = clamp(Math.round(normalSample(rng, 120, 20)), 100, 200);
+        } else if (rng.random() < (abnormalProb.bradycardia[ktas] || 0.01)) {
+          pulse = clamp(Math.round(normalSample(rng, 45, 10)), 30, 60);
+        } else {
+          pulse = clamp(Math.round(normalSample(rng, ar.pulse[0], ar.pulse[1])), 30, 200);
+        }
+        records[i].vst_per_pu = pulse;
+      } else {
+        records[i].vst_per_pu = -1;
+      }
+
+      // Respiration
+      if (rng.random() < mp * 0.9) {
+        var resp;
+        if (rng.random() < (abnormalProb.tachypnea[ktas] || 0.03)) {
+          var ageFactor = age === '01' ? 1.3 : (age === '09' ? 1.2 : 1.0);
+          resp = clamp(Math.round(ar.resp[0] * 1.8 * ageFactor), 22, 60);
+        } else {
+          resp = clamp(Math.round(normalSample(rng, ar.resp[0], ar.resp[1])), 8, 50);
+        }
+        records[i].vst_per_br = resp;
+      } else {
+        records[i].vst_per_br = -1;
+      }
+
+      // Temperature
+      if (rng.random() < mp * 0.8) {
+        var temp;
+        if (rng.random() < (abnormalProb.fever[ktas] || 0.10)) {
+          var sev = rng.random();
+          if (sev < 0.5) temp = normalSample(rng, 38.0, 0.3);
+          else if (sev < 0.85) temp = normalSample(rng, 39.0, 0.4);
+          else temp = normalSample(rng, 40.0, 0.5);
+          temp = clamp(temp, 37.5, 42.0);
+        } else if (rng.random() < (abnormalProb.hypothermia[ktas] || 0.005)) {
+          temp = clamp(normalSample(rng, 34.5, 0.8), 32.0, 36.0);
+        } else {
+          temp = clamp(normalSample(rng, ar.temp[0], ar.temp[1]), 35.0, 37.5);
+        }
+        records[i].vst_bdht = Math.round(temp * 10) / 10;
+      } else {
+        records[i].vst_bdht = -1;
+      }
+
+      // SpO2
+      if (rng.random() < mp * 0.7) {
+        var spo2;
+        if (rng.random() < (abnormalProb.hypoxia[ktas] || 0.02)) {
+          var sev2 = rng.random();
+          if (sev2 < 0.5) spo2 = normalSample(rng, 92, 2);
+          else if (sev2 < 0.85) spo2 = normalSample(rng, 87, 3);
+          else spo2 = normalSample(rng, 80, 5);
+          spo2 = clamp(Math.round(spo2), 50, 95);
+        } else {
+          spo2 = clamp(Math.round(normalSample(rng, 98, 1.5)), 90, 100);
+        }
+        records[i].vst_oxy = spo2;
+      } else {
+        records[i].vst_oxy = -1;
+      }
+    }
+  };
+
+  // ---- Step 6: Date/Time assignment ----
+  NEDISGenerator.prototype._assignDateTime = function(records, n, year) {
+    var tp = this.P.temporal_patterns;
+    var ctp = this.P.temporal_conditional_patterns;
+
+    var isLeap = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+    var daysInYear = isLeap ? 366 : 365;
+
+    var dates = [];
+    for (var d = 0; d < daysInYear; d++) {
+      var dt = new Date(year, 0, 1 + d);
+      dates.push({
+        month: dt.getMonth() + 1,
+        dow: dt.getDay(),
+        dateStr: String(year) + String(dt.getMonth() + 1).padStart(2, '0') + String(dt.getDate()).padStart(2, '0')
+      });
+    }
+
+    var monthlyP = tp.monthly_pattern || {};
+    var weekdayP = tp.weekday_pattern || {};
+    var jsToPythonDow = [6, 0, 1, 2, 3, 4, 5];
+
+    var monthlyVals = Object.values(monthlyP);
+    var weekdayVals = Object.values(weekdayP);
+    var monthlyMean = monthlyVals.length > 0 ? monthlyVals.reduce(function(a,b){return a+b},0) / 12 : 1/12;
+    var weekdayMean = weekdayVals.length > 0 ? weekdayVals.reduce(function(a,b){return a+b},0) / 7 : 1/7;
+
+    var weights = new Float64Array(daysInYear);
+    for (var d = 0; d < daysInYear; d++) {
+      var mMult = (monthlyP[String(dates[d].month)] || monthlyMean) / monthlyMean;
+      var pyDow = jsToPythonDow[dates[d].dow];
+      var wMult = (weekdayP[String(pyDow)] || weekdayMean) / weekdayMean;
+      weights[d] = mMult * wMult;
+    }
+
+    var totalWeight = 0;
+    for (var d = 0; d < daysInYear; d++) totalWeight += weights[d];
+    var dailyVolumes = new Int32Array(daysInYear);
+    var assigned = 0;
+    for (var d = 0; d < daysInYear; d++) {
+      dailyVolumes[d] = Math.max(1, Math.round(n * weights[d] / totalWeight));
+      assigned += dailyVolumes[d];
+    }
+    while (assigned !== n) {
+      var idx = this.rng.randInt(0, daysInYear - 1);
+      if (assigned < n) { dailyVolumes[idx]++; assigned++; }
+      else if (dailyVolumes[idx] > 1) { dailyVolumes[idx]--; assigned--; }
+    }
+
+    var ri = 0;
+    for (var d = 0; d < daysInYear && ri < n; d++) {
+      var vol = dailyVolumes[d];
+      for (var j = 0; j < vol && ri < n; j++) {
+        records[ri].vst_dt = dates[d].dateStr;
+        records[ri]._month = dates[d].month;
+        records[ri]._dow = jsToPythonDow[dates[d].dow];
+        ri++;
+      }
+    }
+
+    var hourlyP = tp.hourly_pattern || {};
+    for (var i = 0; i < n; i++) {
+      var hourDist = null;
+      if (ctp && ctp.month_dow_hour) {
+        var mdKey = records[i]._month + '_' + records[i]._dow;
+        if (ctp.month_dow_hour[mdKey]) hourDist = ctp.month_dow_hour[mdKey];
+      }
+      if (!hourDist && ctp && ctp.month_hour) {
+        var mKey = String(records[i]._month);
+        if (ctp.month_hour[mKey]) hourDist = ctp.month_hour[mKey];
+      }
+      if (!hourDist && ctp && ctp.dow_hour) {
+        var dKey = String(records[i]._dow);
+        if (ctp.dow_hour[dKey]) hourDist = ctp.dow_hour[dKey];
+      }
+      if (!hourDist) hourDist = hourlyP;
+
+      if (hourDist && Object.keys(hourDist).length > 0) {
+        var da = dictToArrays(hourDist);
+        var hour = weightedSample(this.rng, da.items, da.probs);
+        var minute = this.rng.randInt(0, 59);
+        records[i].vst_tm = String(hour).padStart(2, '0') + String(minute).padStart(2, '0');
+      } else {
+        var h = this.rng.randInt(0, 23);
+        var m = this.rng.randInt(0, 59);
+        records[i].vst_tm = String(h).padStart(2, '0') + String(m).padStart(2, '0');
+      }
+
+      delete records[i]._month;
+      delete records[i]._dow;
+    }
+  };
+
+  // ---- Step 7: Time gaps ----
+  NEDISGenerator.prototype._generateTimeGaps = function(records, n) {
+    var compTime = this.P.comprehensive_time_patterns;
+    var tgp = this.P.time_gap_patterns;
+    var rng = this.rng;
+
+    for (var i = 0; i < n; i++) {
+      var ktas = records[i].ktas_fstu;
+      var result = records[i].emtrt_rust;
+      var vstDt = records[i].vst_dt;
+      var vstTm = records[i].vst_tm;
+
+      var yr = parseInt(vstDt.substring(0, 4));
+      var mo = parseInt(vstDt.substring(4, 6)) - 1;
+      var dy = parseInt(vstDt.substring(6, 8));
+      var hr = parseInt(vstTm.substring(0, 2));
+      var mn = parseInt(vstTm.substring(2, 4));
+      var baseTime = new Date(yr, mo, dy, hr, mn);
+
+      var getGapParams = function(gapName) {
+        var p = hierarchicalTimeGapLookup(compTime, ktas, result, gapName);
+        if (p) return p;
+        var flatKey = 'ktas_' + ktas + '_result_' + result;
+        if (tgp[flatKey] && tgp[flatKey][gapName]) return tgp[flatKey][gapName];
+        return null;
+      };
+
+      var sampleGap = function(gapName, maxHrs) {
+        var params = getGapParams(gapName);
+        var minutes;
+        if (params && params.shape && params.scale) {
+          minutes = lognormSample(rng, params.shape, params.loc || 0, params.scale);
+        } else {
+          var defaults = { '1': 30, '2': 45, '3': 60, '4': 90, '5': 120 };
+          var mean = defaults[ktas] || 60;
+          minutes = Math.abs(normalSample(rng, mean, mean * 0.3));
+        }
+        return clamp(minutes, 1, (maxHrs || 168) * 60);
+      };
+
+      // Incident to arrival
+      var incidentGap = sampleGap('incident_to_arrival', 72);
+      var ocurTime = new Date(baseTime.getTime() - incidentGap * 60000);
+      records[i].ocur_dt = formatDate(ocurTime);
+      records[i].ocur_tm = formatTime(ocurTime);
+
+      // ER stay
+      var erStayParams = getGapParams('er_stay');
+      var erStayMin;
+      if (erStayParams && erStayParams.shape && erStayParams.scale) {
+        erStayMin = lognormSample(rng, erStayParams.shape, erStayParams.loc || 0, erStayParams.scale);
+      } else {
+        var erDefaults = { '1': 240, '2': 210, '3': 180, '4': 150, '5': 120 };
+        erStayMin = Math.abs(normalSample(rng, erDefaults[ktas] || 180, 60));
+      }
+      erStayMin = clamp(erStayMin, 10, 168 * 60);
+      var otrmTime = new Date(baseTime.getTime() + erStayMin * 60000);
+      records[i].otrm_dt = formatDate(otrmTime);
+      records[i].otrm_tm = formatTime(otrmTime);
+
+      // Admission
+      var admissionCodes = ['31', '32', '33', '34'];
+      if (admissionCodes.indexOf(result) >= 0) {
+        var admGap = sampleGap('discharge_to_admission', 48);
+        var inpatTime = new Date(otrmTime.getTime() + admGap * 60000);
+        records[i].inpat_dt = formatDate(inpatTime);
+        records[i].inpat_tm = formatTime(inpatTime);
+        records[i].inpat_rust = this._sampleAdmissionResult(ktas);
+      } else {
+        records[i].inpat_dt = '';
+        records[i].inpat_tm = '';
+        records[i].inpat_rust = '';
+      }
+    }
+  };
+
+  NEDISGenerator.prototype._sampleAdmissionResult = function(ktas) {
+    var probs = {
+      '1': { '1': 0.3, '2': 0.3, '3': 0.1, '4': 0.3 },
+      '2': { '1': 0.4, '2': 0.35, '3': 0.15, '4': 0.1 },
+      '3': { '1': 0.5, '2': 0.35, '3': 0.1, '4': 0.05 },
+      '4': { '1': 0.55, '2': 0.35, '3': 0.08, '4': 0.02 },
+      '5': { '1': 0.6, '2': 0.3, '3': 0.08, '4': 0.02 }
+    };
+    var dist = probs[ktas] || probs['3'];
+    var da = dictToArrays(dist);
+    return weightedSample(this.rng, da.items, da.probs);
+  };
+
+  // ---- Step 8: IDs ----
+  NEDISGenerator.prototype._assignIDs = function(records, n) {
+    for (var i = 0; i < n; i++) {
+      records[i].index_key = 'SYNTH_' + String(i + 1).padStart(8, '0');
+      records[i].pat_reg_no = 'P' + String(this.rng.randInt(10000000, 99999999));
+    }
+  };
+}
+</script>
+</body>
+</html>
