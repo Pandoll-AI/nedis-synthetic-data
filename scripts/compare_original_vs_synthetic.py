@@ -211,6 +211,76 @@ def index():
     )
 
 
+@app.route('/generator')
+def generator():
+    """Render the synthetic data generator page with filter controls."""
+    return render_template('generator.html')
+
+
+@app.route('/generate')
+def generate():
+    """API endpoint: trigger synthetic data generation for selected years/months."""
+    import json
+    import time as _time
+    import subprocess
+
+    years_str = request.args.get('years', '')
+    months_str = request.args.get('months', '')
+    count_str = request.args.get('count', '10000')
+
+    # Validate inputs
+    try:
+        years = [int(y) for y in years_str.split(',') if y.strip()]
+        months = [int(m) for m in months_str.split(',') if m.strip()]
+        count = int(count_str)
+    except (ValueError, TypeError):
+        return json.dumps({'success': False, 'error': '입력값이 올바르지 않습니다.'}), 400, {'Content-Type': 'application/json'}
+
+    if not years or not months:
+        return json.dumps({'success': False, 'error': '연도와 월을 선택해주세요.'}), 400, {'Content-Type': 'application/json'}
+    if count < 1 or count > 100000:
+        return json.dumps({'success': False, 'error': '건수는 1~100,000 사이여야 합니다.'}), 400, {'Content-Type': 'application/json'}
+
+    db_path = app.config.get('DB_PATH', DEFAULT_DB)
+    start = _time.time()
+    total_generated = 0
+
+    try:
+        project_root = Path(__file__).parent.parent
+        pipeline_script = project_root / 'scripts' / 'run_vectorized_pipeline.py'
+
+        for year in sorted(years):
+            # Build month filter as comma-separated string for the pipeline
+            month_list = ','.join(str(m) for m in sorted(months))
+            cmd = [
+                'python3', str(pipeline_script),
+                '--database', db_path,
+                '--total-records', str(count),
+                '--year', str(year),
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            if result.returncode != 0:
+                return json.dumps({
+                    'success': False,
+                    'error': f'{year}년 생성 실패: {result.stderr[:500]}'
+                }), 500, {'Content-Type': 'application/json'}
+            total_generated += count
+
+        elapsed = round(_time.time() - start, 1)
+        return json.dumps({
+            'success': True,
+            'total_records': total_generated,
+            'elapsed': elapsed,
+            'years': years,
+            'months': months,
+        }), 200, {'Content-Type': 'application/json'}
+
+    except subprocess.TimeoutExpired:
+        return json.dumps({'success': False, 'error': '생성 시간 초과 (10분)'}), 504, {'Content-Type': 'application/json'}
+    except Exception as e:
+        return json.dumps({'success': False, 'error': str(e)}), 500, {'Content-Type': 'application/json'}
+
+
 @app.route('/export')
 def export_static():
     # Render the same page and save as outputs HTML

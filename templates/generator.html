@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEDIS 합성 데이터 생성기</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f2f5;
+      color: #333;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 40px 16px;
+    }
+
+    .container {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+      max-width: 720px;
+      width: 100%;
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      padding: 28px 32px;
+    }
+    .header h1 { font-size: 1.6em; font-weight: 700; }
+    .header p { opacity: 0.85; margin-top: 6px; font-size: 0.95em; }
+
+    .body { padding: 28px 32px; }
+
+    .section { margin-bottom: 24px; }
+    .section-label {
+      font-weight: 600;
+      font-size: 0.92em;
+      color: #495057;
+      margin-bottom: 10px;
+    }
+
+    /* Tag-style toggle buttons */
+    .tag-group { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .tag-btn {
+      display: inline-block;
+      padding: 7px 18px;
+      border: 2px solid #d0d5dd;
+      border-radius: 20px;
+      background: #fff;
+      color: #495057;
+      font-size: 0.9em;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .tag-btn:hover {
+      border-color: #667eea;
+      color: #667eea;
+    }
+    .tag-btn.selected {
+      background: #667eea;
+      border-color: #667eea;
+      color: #fff;
+    }
+    .tag-btn.selected:hover {
+      background: #5a6fd6;
+      border-color: #5a6fd6;
+    }
+
+    /* Warning banner */
+    .warning-banner {
+      display: none;
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-top: 12px;
+      font-size: 0.88em;
+      color: #856404;
+      line-height: 1.5;
+    }
+    .warning-banner.visible { display: block; }
+
+    /* Count input */
+    .count-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .count-input {
+      width: 180px;
+      padding: 8px 14px;
+      border: 2px solid #d0d5dd;
+      border-radius: 8px;
+      font-size: 1em;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .count-input:focus { border-color: #667eea; }
+    .count-input.error { border-color: #dc3545; }
+    .count-hint {
+      font-size: 0.82em;
+      color: #868e96;
+    }
+    .count-error {
+      display: none;
+      font-size: 0.82em;
+      color: #dc3545;
+      margin-top: 6px;
+    }
+    .count-error.visible { display: block; }
+
+    /* Summary */
+    .summary {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+      font-size: 0.9em;
+      color: #495057;
+      line-height: 1.6;
+    }
+    .summary strong { color: #333; }
+
+    /* Execute button */
+    .btn-execute {
+      width: 100%;
+      padding: 14px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1.05em;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn-execute:hover { opacity: 0.92; }
+    .btn-execute:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Status area */
+    .status {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 8px;
+      font-size: 0.9em;
+      display: none;
+    }
+    .status.running {
+      display: block;
+      background: #e8f4fd;
+      border: 1px solid #bee5eb;
+      color: #0c5460;
+    }
+    .status.success {
+      display: block;
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+    }
+    .status.error {
+      display: block;
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>NEDIS 합성 데이터 생성기</h1>
+      <p>연도와 월을 선택한 후 생성할 데이터 건수를 입력하세요</p>
+    </div>
+
+    <div class="body">
+      <!-- Year selection -->
+      <div class="section">
+        <div class="section-label">연도 선택 (다중 선택 가능)</div>
+        <div class="tag-group" id="year-group">
+          <span class="tag-btn" data-year="2020">2020</span>
+          <span class="tag-btn" data-year="2021">2021</span>
+          <span class="tag-btn" data-year="2022">2022</span>
+          <span class="tag-btn" data-year="2023">2023</span>
+          <span class="tag-btn" data-year="2024">2024</span>
+          <span class="tag-btn" data-year="2025">2025</span>
+        </div>
+      </div>
+
+      <!-- Month selection -->
+      <div class="section">
+        <div class="section-label">월 선택 (다중 선택 가능)</div>
+        <div class="tag-group" id="month-group">
+          <span class="tag-btn" data-month="1">1월</span>
+          <span class="tag-btn" data-month="2">2월</span>
+          <span class="tag-btn" data-month="3">3월</span>
+          <span class="tag-btn" data-month="4">4월</span>
+          <span class="tag-btn" data-month="5">5월</span>
+          <span class="tag-btn" data-month="6">6월</span>
+          <span class="tag-btn" data-month="7">7월</span>
+          <span class="tag-btn" data-month="8">8월</span>
+          <span class="tag-btn" data-month="9">9월</span>
+          <span class="tag-btn" data-month="10">10월</span>
+          <span class="tag-btn" data-month="11">11월</span>
+          <span class="tag-btn" data-month="12">12월</span>
+        </div>
+        <div class="warning-banner" id="month-warning">
+          <strong>주의:</strong> 6개월 이상 선택되었습니다. 데이터 양이 많아 생성 시간이 오래 걸리고 메모리 사용량이 높을 수 있습니다.
+        </div>
+      </div>
+
+      <!-- Count input -->
+      <div class="section">
+        <div class="section-label">생성 건수</div>
+        <div class="count-row">
+          <input type="number" id="record-count" class="count-input"
+                 min="1" max="100000" value="10000" placeholder="건수 입력">
+          <span class="count-hint">최대 100,000건</span>
+        </div>
+        <div class="count-error" id="count-error">건수는 1 ~ 100,000 사이로 입력해주세요.</div>
+      </div>
+
+      <!-- Summary -->
+      <div class="summary" id="summary">
+        선택된 조건이 없습니다. 연도와 월을 선택해주세요.
+      </div>
+
+      <!-- Execute -->
+      <button class="btn-execute" id="btn-execute" disabled>생성 실행</button>
+
+      <!-- Status -->
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const yearGroup = document.getElementById('year-group');
+      const monthGroup = document.getElementById('month-group');
+      const monthWarning = document.getElementById('month-warning');
+      const countInput = document.getElementById('record-count');
+      const countError = document.getElementById('count-error');
+      const summary = document.getElementById('summary');
+      const btnExecute = document.getElementById('btn-execute');
+      const statusEl = document.getElementById('status');
+
+      function getSelected(group, attr) {
+        return Array.from(group.querySelectorAll('.tag-btn.selected'))
+          .map(el => el.getAttribute(attr));
+      }
+
+      function updateUI() {
+        const years = getSelected(yearGroup, 'data-year');
+        const months = getSelected(monthGroup, 'data-month');
+        const totalMonths = years.length * months.length;
+        const count = parseInt(countInput.value, 10);
+
+        // Month warning
+        if (totalMonths >= 6) {
+          monthWarning.classList.add('visible');
+        } else {
+          monthWarning.classList.remove('visible');
+        }
+
+        // Count validation
+        const countValid = !isNaN(count) && count >= 1 && count <= 100000;
+        if (!countValid && countInput.value !== '') {
+          countInput.classList.add('error');
+          countError.classList.add('visible');
+        } else {
+          countInput.classList.remove('error');
+          countError.classList.remove('visible');
+        }
+
+        // Summary
+        if (years.length === 0 || months.length === 0) {
+          summary.innerHTML = '선택된 조건이 없습니다. 연도와 월을 선택해주세요.';
+        } else {
+          const monthNames = months.map(m => m + '월').join(', ');
+          summary.innerHTML =
+            '<strong>연도:</strong> ' + years.join(', ') +
+            ' &nbsp;|&nbsp; <strong>월:</strong> ' + monthNames +
+            ' &nbsp;|&nbsp; <strong>건수:</strong> ' + (countValid ? count.toLocaleString() : '-') + '건' +
+            ' &nbsp;|&nbsp; <strong>총 기간:</strong> ' + totalMonths + '개월';
+        }
+
+        // Button state
+        btnExecute.disabled = !(years.length > 0 && months.length > 0 && countValid);
+      }
+
+      // Tag click handler
+      function setupTagGroup(group) {
+        group.addEventListener('click', function (e) {
+          const btn = e.target.closest('.tag-btn');
+          if (!btn) return;
+          btn.classList.toggle('selected');
+          updateUI();
+        });
+      }
+
+      setupTagGroup(yearGroup);
+      setupTagGroup(monthGroup);
+
+      countInput.addEventListener('input', updateUI);
+
+      // Execute
+      btnExecute.addEventListener('click', function () {
+        const years = getSelected(yearGroup, 'data-year');
+        const months = getSelected(monthGroup, 'data-month');
+        const count = parseInt(countInput.value, 10);
+
+        if (years.length === 0 || months.length === 0 || isNaN(count) || count < 1 || count > 100000) {
+          return;
+        }
+
+        const params = new URLSearchParams({
+          years: years.join(','),
+          months: months.join(','),
+          count: count
+        });
+
+        btnExecute.disabled = true;
+        statusEl.className = 'status running';
+        statusEl.textContent = '생성 중... 잠시 기다려주세요.';
+
+        fetch('/generate?' + params.toString())
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            if (data.success) {
+              statusEl.className = 'status success';
+              statusEl.innerHTML =
+                '<strong>생성 완료!</strong> ' + (data.total_records || 0).toLocaleString() + '건 생성됨' +
+                (data.elapsed ? ' (' + data.elapsed + '초)' : '') +
+                (data.output_path ? '<br>저장 경로: ' + data.output_path : '');
+            } else {
+              statusEl.className = 'status error';
+              statusEl.textContent = '오류: ' + (data.error || '알 수 없는 오류');
+            }
+          })
+          .catch(function (err) {
+            statusEl.className = 'status error';
+            statusEl.textContent = '요청 실패: ' + err.message;
+          })
+          .finally(function () {
+            btnExecute.disabled = false;
+          });
+      });
+
+      // Initial state
+      updateUI();
+    })();
+  </script>
+</body>
+</html>
