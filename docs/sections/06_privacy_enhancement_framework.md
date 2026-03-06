@@ -1,5 +1,34 @@
 # 6. Privacy Enhancement Framework
 
+> **Implementation Status**: `src/privacy/` 모듈 구현 완료. `EnhancedSyntheticGenerator` (`src/generation/enhanced_synthetic_generator.py`)가 7단계 프라이버시 보호 파이프라인을 통합 제공합니다.
+
+## 6.0 Implementation Overview
+
+### Implemented Modules
+
+| 모듈 | 파일 | 클래스 |
+|------|-----|--------|
+| Identifier Management | `src/privacy/identifier_manager.py` | `IdentifierManager` |
+| K-Anonymity | `src/privacy/k_anonymity.py` | `KAnonymityValidator`, `KAnonymityEnforcer` |
+| Generalization | `src/privacy/generalization.py` | `AgeGeneralizer`, `GeographicGeneralizer`, `TemporalGeneralizer` |
+| Differential Privacy | `src/privacy/differential_privacy.py` | `DifferentialPrivacy`, `PrivacyAccountant` |
+| Privacy Validation | `src/privacy/privacy_validator.py` | `PrivacyValidator`, `PrivacyMetrics`, `PrivacyValidationResult` |
+| Enhanced Generator | `src/generation/enhanced_synthetic_generator.py` | `EnhancedSyntheticGenerator`, `PrivacyConfig` |
+
+### `EnhancedSyntheticGenerator` 7-Phase Pipeline
+
+```
+Phase 1: Generate base synthetic data    (VectorizedPatientGenerator)
+Phase 2: Manage identifiers              (IdentifierManager)
+Phase 3: Apply generalization            (AgeGeneralizer, GeographicGeneralizer, TemporalGeneralizer)
+Phase 4: Enforce k-anonymity             (KAnonymityEnforcer)
+Phase 5: Apply differential privacy      (DifferentialPrivacy)
+Phase 6: Validate privacy                (PrivacyValidator)
+Phase 7: Post-processing                 (cleanup)
+```
+
+각 Phase는 `PrivacyConfig`의 enable 플래그로 개별 활성화/비활성화 가능합니다.
+
 ## 6.1 Identifier Management
 
 ### 6.1.1 Direct Identifier Removal
@@ -15,7 +44,7 @@ Direct identifiers that uniquely identify individuals are systematically removed
 
 ### 6.1.2 Synthetic ID Generation
 
-The **Identifier Manager** creates cryptographically secure synthetic identifiers that provide dataset consistency without revealing personal information.
+The **Identifier Manager** (`src/privacy/identifier_manager.py`, class `IdentifierManager`) creates cryptographically secure synthetic identifiers that provide dataset consistency without revealing personal information.
 
 #### Synthetic ID Generation Process
 

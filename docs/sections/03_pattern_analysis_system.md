@@ -1,292 +1,192 @@
 # 3. Pattern Analysis System
 
-## 3.1 Dynamic Pattern Learning
+## 3.1 Overview
 
-The pattern analysis system employs sophisticated statistical learning techniques to extract distributions and relationships directly from source data, avoiding hardcoded assumptions that may not reflect real-world variations.
+`PatternAnalyzer` (`src/analysis/pattern_analyzer.py`)는 원본 NEDIS 데이터에서 경험적 분포를 추출하여 합성 데이터 생성의 기반을 만드는 핵심 모듈입니다. 모든 분포는 SQL 기반 집계 쿼리로 학습되며, 파라메트릭 모델(KDE, 로지스틱 회귀 등)은 사용하지 않습니다.
 
-### 3.1.1 Theoretical Foundation
+### 핵심 설계 원칙
 
-**Statistical Learning Principle**: Instead of assuming parametric distributions (e.g., normal, exponential), the system uses empirical distribution functions and kernel density estimation to capture the true data-generating process:
+- **하드코딩 금지**: 모든 확률/가중치는 원본 데이터에서 동적으로 학습
+- **경험적 분포**: SQL `COUNT(*) / SUM(COUNT(*)) OVER(PARTITION BY ...)` 윈도우 함수로 조건부 확률 계산
+- **계층적 Fallback**: 데이터 희소 시 상위 범주로 자동 대안
+- **최소 샘플 검증**: `min_sample_size=10` 미만인 그룹은 제외
+- **캐싱**: Pickle/JSON 기반, MD5 해시로 무효화 관리
 
-$$\hat{F}_n(x) = \frac{1}{n}\sum_{i=1}^{n} \mathbb{1}(X_i \leq x)$$
+---
 
-Where $\hat{F}_n(x)$ is the empirical distribution function, and $\mathbb{1}$ is the indicator function.
+## 3.2 Classes
 
-**Adaptive Smoothing**: For continuous variables, kernel density estimation provides smooth probability density functions:
+### `PatternAnalysisConfig` (dataclass)
 
-$$\hat{f}(x) = \frac{1}{nh}\sum_{i=1}^{n} K\left(\frac{x-X_i}{h}\right)$$
+| 파라미터 | 기본값 | 설명 |
+|---------|-------|------|
+| `cache_dir` | `"cache/patterns"` | 캐시 디렉토리 |
+| `use_cache` | `True` | 캐시 사용 여부 |
+| `min_sample_size` | `10` | 최소 샘플 수 |
+| `confidence_threshold` | `0.95` | 신뢰 수준 |
+| `hierarchical_fallback` | `True` | 계층적 대안 사용 |
 
-Where $K$ is the kernel function (typically Gaussian) and $h$ is the bandwidth selected via cross-validation.
+### `AnalysisCache`
 
-### 3.1.2 Pattern Categories and Algorithmic Approaches
+캐시 시스템을 관리하는 클래스.
 
-**Demographic Patterns**
+| 메서드 | 설명 |
+|-------|------|
+| `get_data_hash(db_manager, table_name)` | 테이블 행 수 + 1000행 샘플로 MD5 해시 생성 |
+| `load_cached_analysis(analysis_type, data_hash)` | Pickle 파일에서 캐시 로드 |
+| `save_analysis_cache(analysis_type, data_hash, results)` | 분석 결과를 Pickle로 저장 + JSON 메타데이터 업데이트 |
+| `clear_cache(analysis_type?)` | 전체 또는 특정 분석 캐시 삭제 |
 
-*Age Distribution Learning*:
-- **Algorithm**: Adaptive binning with optimal bin selection using Scott's rule: $h = 3.5\sigma n^{-1/3}$
-- **Reasoning**: Age distributions are often multimodal (pediatric, adult, geriatric peaks) requiring flexible binning
-- **Stratification**: Conditional distributions $P(\text{age}|\text{region}, \text{time})$ to capture regional and temporal variations
+**캐시 키 구조**: `{analysis_type}_{data_hash}.pkl`
+**메타데이터**: `cache/patterns/cache_metadata.json`에 각 엔트리의 생성 시각, 파일 경로 기록
 
-*Gender Ratio Estimation*:
-- **Algorithm**: Bayesian beta-binomial modeling with conjugate priors
-- **Mathematical Model**: 
-  $$P(\text{male}|\alpha, \beta) \sim \text{Beta}(\alpha, \beta)$$
-  $$\text{Observations} \sim \text{Binomial}(n, P(\text{male}))$$
-- **Reasoning**: Beta-binomial captures uncertainty in gender ratios while providing conjugate updates
+### `PatternAnalyzer`
 
-*Geographic Clustering*:
-- **Algorithm**: Hierarchical spatial clustering using Ward linkage
-- **Distance Metric**: Haversine distance for geographic coordinates
-- **Reasoning**: Emergency care patterns exhibit spatial autocorrelation due to population density and healthcare accessibility
+핵심 분석 클래스. `DatabaseManager`와 `ConfigManager`를 주입받아 동작합니다.
 
-**Temporal Patterns**
+---
 
-*Non-Homogeneous Poisson Process (NHPP) Learning*:
-- **Theoretical Model**: Arrival rate $\lambda(t)$ varies over time
-  $$N(t) \sim \text{Poisson}\left(\int_0^t \lambda(s)ds\right)$$
-- **Algorithm**: 
-  1. Estimate intensity function using kernel regression: $\hat{\lambda}(t) = \sum_{i} K_h(t - t_i)$
-  2. Smooth using Gaussian kernels with adaptive bandwidth
-  3. Validate goodness-of-fit using Kolmogorov-Smirnov test
-- **Reasoning**: Hospital arrivals follow time-varying patterns (rush hours, shift changes, circadian rhythms)
+## 3.3 Pattern Categories (10가지)
 
-*Seasonal Decomposition*:
-- **Algorithm**: X-13ARIMA-SEATS seasonal adjustment
-- **Mathematical Framework**:
-  $$Y_t = T_t + S_t + I_t + \epsilon_t$$
-  Where $T_t$ is trend, $S_t$ is seasonal, $I_t$ is irregular, $\epsilon_t$ is noise
-- **Reasoning**: Healthcare utilization exhibits strong seasonal patterns (flu season, holidays, weather effects)
+`analyze_all_patterns()` 메서드가 순차적으로 10개 패턴을 분석합니다:
 
-*Day-of-Week and Holiday Effects*:
-- **Algorithm**: Fourier series decomposition with harmonic analysis
-- **Mathematical Model**:
-  $$\lambda(t) = \mu + \sum_{k=1}^{K} [a_k\cos(2\pi k t/T) + b_k\sin(2\pi k t/T)]$$
-- **Reasoning**: Weekly patterns are periodic; Fourier analysis captures multiple harmonics
+| # | 패턴 이름 | 분석 메서드 | 학습 내용 |
+|---|---------|-----------|----------|
+| 1 | `hospital_allocation` | `analyze_hospital_allocation_patterns()` | P(hospital \| region) |
+| 2 | `ktas_distributions` | `analyze_ktas_distributions()` | P(KTAS \| region, hospital_type) — 4단계 계층 |
+| 3 | `regional_patterns` | `analyze_regional_patterns()` | 지역별 기초 통계 (방문수, 응급률, 남성비 등) |
+| 4 | `demographic_patterns` | `analyze_demographic_patterns()` | P(age_group, sex) 및 동반 통계 |
+| 5 | `temporal_patterns` | `analyze_temporal_patterns()` | 월별/요일별/시간별 내원 분포 |
+| 6 | `temporal_conditional_patterns` | `analyze_temporal_conditional_patterns()` | 8가지 다차원 조건부 시간 분포 |
+| 7 | `visit_method_patterns` | `analyze_visit_method_patterns()` | P(vst_meth \| pat_age_gr) |
+| 8 | `chief_complaint_patterns` | `analyze_chief_complaint_patterns()` | P(msypt \| pat_age_gr, pat_sex) |
+| 9 | `department_patterns` | `analyze_department_patterns()` | P(main_trt_p \| pat_age_gr, pat_sex) |
+| 10 | `treatment_result_patterns` | `analyze_treatment_result_patterns()` | P(emtrt_rust \| ktas_fstu, pat_age_gr) |
 
-**Clinical Patterns**
+각 분석은 캐시 미스 시에만 수행되며, 결과는 즉시 Pickle로 캐싱됩니다.
 
-*KTAS Distribution Learning*:
-- **Algorithm**: Multinomial logistic regression with demographic predictors
-- **Mathematical Model**:
-  $$P(\text{KTAS}=k|\mathbf{x}) = \frac{\exp(\mathbf{x}^T\boldsymbol{\beta}_k)}{1 + \sum_{j=1}^{4}\exp(\mathbf{x}^T\boldsymbol{\beta}_j)}$$
-- **Reasoning**: KTAS severity depends on age, comorbidities, presentation time - logistic regression captures these relationships
+---
 
-*Vital Sign Correlation Learning*:
-- **Algorithm**: Multivariate Gaussian mixture modeling with EM algorithm
-- **Mathematical Framework**:
-  $$\mathbf{V} \sim \sum_{k=1}^{K} \pi_k \mathcal{N}(\boldsymbol{\mu}_k, \boldsymbol{\Sigma}_k)$$
-- **Reasoning**: Vital signs exhibit complex correlations (BP-HR relationship, respiratory compensation) requiring mixture models
+## 3.4 SQL-Based Empirical Distribution Extraction
 
-*Diagnosis Pattern Mining*:
-- **Algorithm**: Latent Dirichlet Allocation (LDA) for topic modeling
-- **Mathematical Model**:
-  $$P(\text{diagnosis}|\text{symptoms}) = \sum_{k} P(\text{diagnosis}|\text{topic}_k)P(\text{topic}_k|\text{symptoms})$$
-- **Reasoning**: Emergency presentations involve latent clinical syndromes best captured by topic models
+모든 패턴은 SQL 윈도우 함수로 조건부 확률을 계산합니다. 대표적인 패턴:
 
-### 3.1.3 Advanced Learning Algorithm Implementation
+### Hospital Allocation
 
-The **Advanced Pattern Analyzer** is the core component responsible for learning statistical patterns from emergency department data. Instead of hardcoded distributions, it dynamically adapts to the actual data characteristics through several intelligent processes:
-
-#### Data Distribution Learning Process
-
-**Automatic Model Selection**: The system intelligently chooses the best statistical model for each data type:
-
-| Data Characteristic | Statistical Test Applied | Model Selected | Reasoning |
-|-------------------|------------------------|----------------|-----------|
-| **Continuous & Normal** | Shapiro-Wilk, Jarque-Bera | Gaussian Distribution | Parametric efficiency |
-| **Continuous & Non-Normal** | Anderson-Darling | Kernel Density Estimation | Flexible non-parametric |
-| **Discrete & Count Data** | Dispersion Test | Poisson/Negative Binomial | Count process modeling |
-| **Categorical** | Chi-square Goodness-of-Fit | Multinomial with Dirichlet | Bayesian uncertainty |
-
-#### Kernel Density Estimation (KDE) Workflow
-
-When data doesn't follow standard parametric distributions, the system employs a sophisticated KDE process:
-
-1. **Initial Bandwidth Selection**: Uses Scott's rule $h = \sigma \cdot n^{-1/5}$ as starting point
-2. **Cross-Validation Refinement**: Tests 20 bandwidth values across logarithmic scale
-3. **Optimal Selection**: Chooses bandwidth maximizing likelihood via 5-fold cross-validation
-4. **Model Validation**: Ensures the resulting model captures data characteristics accurately
-
-#### Non-Homogeneous Poisson Process (NHPP) Learning
-
-For temporal arrival patterns, the system implements a comprehensive NHPP learning algorithm:
-
-**Process Overview**:
-```
-Raw Timestamps → Time Conversion → Intensity Estimation → Fourier Smoothing → Validated Model
+```sql
+SELECT
+    pat_do_cd as region_code,
+    emorg_cd as hospital_code,
+    COUNT(*) as visit_count,
+    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER(PARTITION BY pat_do_cd) as region_probability
+FROM {source_table}
+WHERE pat_do_cd IS NOT NULL AND emorg_cd IS NOT NULL
+GROUP BY pat_do_cd, emorg_cd
+HAVING COUNT(*) >= {min_sample_size}
 ```
 
-**Detailed Steps**:
+결과: 각 지역 내에서 병원별 방문 확률을 계산하여 `np.random.choice`의 확률 벡터로 사용.
 
-1. **Time Normalization**: Convert timestamps to continuous time scale (0-24 hours)
-2. **Intensity Estimation**: 
-   - Use Gaussian kernels with 2-hour bandwidth
-   - Calculate arrival rates at 30-minute intervals
-   - Apply kernel density estimation to smooth intensity function
-3. **Fourier Series Fitting**:
-   - Fit up to 6 harmonics to capture daily patterns
-   - Use regularized least squares to prevent overfitting
-   - Balance smoothness with pattern fidelity
-4. **Model Reconstruction**: Create continuous intensity function for simulation
+### Conditional Temporal Patterns
 
-#### Bootstrap Confidence Intervals
+단일 쿼리로 6개 차원(pat_age_gr, pat_sex, ktas_fstu, month, dow, hour)의 원시 카운트를 추출한 후, `_build_conditional_distribution()`으로 8가지 조건부 분포를 구축:
 
-The system quantifies uncertainty in learned patterns using bootstrap methodology:
+| 조건부 분포 | Key Columns | Target |
+|-----------|-------------|--------|
+| `month_hour` | [month] | hour |
+| `dow_hour` | [dow] | hour |
+| `month_dow_hour` | [month, dow] | hour |
+| `ktas_hour` | [ktas_fstu] | hour |
+| `age_hour` | [pat_age_gr] | hour |
+| `age_sex_hour` | [pat_age_gr, pat_sex] | hour |
+| `ktas_age_hour` | [ktas_fstu, pat_age_gr] | hour |
+| `age_sex_ktas_hour` | [pat_age_gr, pat_sex, ktas_fstu] | hour |
 
-**Bootstrap Process**:
-1. Generate synthetic samples from observed distribution
-2. Create 1000 bootstrap resamples with replacement
-3. Calculate distribution for each resample
-4. Compute 95% confidence intervals using percentiles
-5. Validate interval widths (reject if >30% width)
+---
 
-### 3.1.4 Statistical Validation and Model Selection
+## 3.5 `_build_conditional_distribution()` Method
 
-**Cross-Validation Framework**:
-- **Time Series CV**: For temporal patterns, use time-aware splits to avoid data leakage
-- **Stratified CV**: For categorical outcomes, maintain class balance across folds
-- **Geographic CV**: For spatial patterns, use spatial block cross-validation
+SQL 쿼리 결과를 조건부 확률 맵으로 변환하는 범용 메서드:
 
-**Goodness-of-Fit Testing**:
-- **Kolmogorov-Smirnov**: For continuous distributions
-- **Chi-square**: For discrete/categorical distributions  
-- **Anderson-Darling**: More sensitive to tail behavior than KS test
-- **Cramér-von Mises**: For overall distribution shape
+1. **입력**: `count` 컬럼을 포함한 DataFrame, 키 컬럼 리스트, 타겟 컬럼
+2. **그룹화**: `key_cols + [target_col]`로 그룹화 후 count 합산
+3. **정규화**: 각 키 조합 내에서 `count / total_count`로 확률 계산
+4. **출력 형식**: `{key_string: {total_count, patterns: {hour: {count, probability}}}}`
 
-**Model Selection Criteria**:
-- **AIC/BIC**: Penalized likelihood for parametric models
-- **Cross-validation error**: For non-parametric models
-- **Domain knowledge**: Clinical constraints on parameter ranges
+키 문자열은 `'|'`로 조인 (예: `"3|M"` = ktas 3, 남성).
 
-## 3.2 Hierarchical Fallback Strategy
+---
 
-### 3.2.1 Mathematical Foundation
+## 3.6 Hierarchical Fallback Strategy
 
-The hierarchical fallback strategy addresses the **curse of dimensionality** in conditional probability estimation. As we increase conditioning variables, the effective sample size decreases exponentially:
+### KTAS Distribution — 4-Level Hierarchy
 
-$$n_{\text{effective}} = \frac{n}{k^d}$$
-
-Where $n$ is total sample size, $k$ is average categories per dimension, and $d$ is number of dimensions.
-
-**Statistical Reliability Threshold**: We require minimum sample size $n_{\min}$ for reliable estimation based on the **Central Limit Theorem**:
-
-$$n_{\min} = \left(\frac{z_{\alpha/2} \cdot \sigma}{E}\right)^2$$
-
-Where $z_{\alpha/2}$ is critical z-value (typically 1.96 for 95% confidence), $\sigma$ is estimated standard deviation, and $E$ is acceptable margin of error.
-
-### 3.2.2 Hierarchy Design Principles
-
-**Information-Theoretic Justification**: Each fallback level represents a trade-off between specificity and reliability:
-
-1. **Level 1 (Most Specific)**: $P(Y|X_1, X_2, X_3)$ - Maximum conditional information
-2. **Level 2 (Regional)**: $P(Y|X_1, X_3)$ - Remove least informative variable
-3. **Level 3 (Temporal)**: $P(Y|X_3)$ - Keep most universal patterns
-4. **Level 4 (Global)**: $P(Y)$ - Marginal distribution as ultimate fallback
-
-**Variable Selection Algorithm**: Use **Mutual Information** to rank conditioning variables:
-
-$$I(Y; X_i) = \sum_{x_i, y} p(x_i, y) \log\frac{p(x_i, y)}{p(x_i)p(y)}$$
-
-Higher mutual information variables are retained in fallback levels.
-
-### 3.2.3 Hierarchical Pattern Management System
-
-The **Hierarchical Pattern Manager** implements a sophisticated fallback system that ensures reliable pattern retrieval even when specific conditions have insufficient data.
-
-#### Hierarchy Structure Design
-
-The system organizes patterns across 4 hierarchical levels, each representing different levels of specificity:
-
-| Level | KTAS Distribution | Hospital Allocation | Temporal Patterns | Sample Requirements |
-|-------|------------------|-------------------|------------------|-------------------|
-| **1** | Region(4-digit) + Hospital Type + Time Period | Region(4-digit) + Age Group + Severity | Region(2-digit) + Hospital Size + Day Type | ≥30 samples |
-| **2** | Region(2-digit) + Hospital Type + Time Period | Region(2-digit) + Age Group + Severity | Region(2-digit) + Day Type | ≥20 samples |
-| **3** | Hospital Type + Time Period | Age Group + Severity | Day Type only | ≥15 samples |
-| **4** | Marginal Distribution | Marginal Distribution | Marginal Distribution | Always available |
-
-#### Pattern Retrieval Algorithm
-
-The system follows a systematic approach to pattern retrieval:
+`get_hierarchical_ktas_distribution(region_code, hospital_type)`:
 
 ```
-Pattern Request → Level 1 Attempt → Statistical Validation → Success/Failure
-                     ↓ (if failure)
-                 Level 2 Attempt → Statistical Validation → Success/Failure
-                     ↓ (if failure)
-                 Level 3 Attempt → Statistical Validation → Success/Failure
-                     ↓ (if failure)
-                 Level 4 (Guaranteed) → Return Global Pattern
+Level 1: "{region_code}_{hospital_type}"      (예: "1101_large")
+    ↓ miss
+Level 2: "{region_code[:2]}_{hospital_type}"  (예: "11_large")
+    ↓ miss
+Level 3: hospital_type only                   (예: "large")
+    ↓ miss
+Level 4: overall_pattern                      (전체 평균)
 ```
 
-#### Statistical Validation Framework
+각 단계에서 패턴이 존재하면 즉시 반환. 병원 유형은 `daily_capacity_mean` 기준으로 분류:
+- `>= 300`: large
+- `>= 100`: medium
+- 나머지: small
 
-Each pattern undergoes rigorous validation before acceptance:
+### Hospital Allocation — Region-Based Hierarchy
 
-**Validation Criteria**:
+`_create_hierarchical_patterns()`으로 대분류(2자리) 수준의 병원 할당 패턴 생성:
+- 소분류 지역의 병원 방문 카운트를 대분류로 합산
+- 합산된 카운트로 확률 재계산
+- 소분류 데이터가 `min_sample_size` 미만이면 대분류 패턴으로 대체
 
-1. **Sample Size Test**: Minimum 30 samples for reliable statistics
-2. **Bootstrap Stability**: Confidence intervals must be <30% width
-3. **Entropy Check**: Information content ≥1 bit (log₂(2))
-4. **Variance Check**: Avoid degenerate distributions (variance >10⁻⁶)
+---
 
-**Quality Assessment Process**:
+## 3.7 Caching Strategy
 
-| Criterion | Test Method | Acceptance Threshold | Reasoning |
-|-----------|-------------|---------------------|-----------|
-| **Sample Size** | Simple Count | n ≥ 30 | Central Limit Theorem |
-| **Stability** | Bootstrap CI Width | Width < 30% | Statistical Precision |
-| **Information** | Shannon Entropy | H ≥ 1 bit | Meaningful Patterns |
-| **Variance** | Distribution Spread | σ² > 10⁻⁶ | Non-degenerate |
+### Hash-Based Invalidation
 
-#### Uncertainty Quantification
-
-The system provides uncertainty measures based on hierarchy level:
-
-**Uncertainty Multipliers**:
-- **Level 1**: 1.0× (Most specific, lowest uncertainty)
-- **Level 2**: 1.2× (Regional aggregation)
-- **Level 3**: 1.5× (National patterns)
-- **Level 4**: 2.0× (Global fallback, highest uncertainty)
-
-**Pattern Enhancement**: Each returned pattern includes:
-- **Hierarchy Level**: Which level was used
-- **Uncertainty Factor**: Relative confidence measure
-- **Reliability Score**: Statistical quality indicator
-- **Confidence Intervals**: Bootstrap-derived uncertainty bounds
-
-#### Pattern Quality Metrics
-
-The system provides comprehensive quality assessment:
-
-**Reliability Score Calculation**:
-1. **Sample Size Factor**: min(1.0, sample_size / (2 × min_required))
-2. **Entropy Factor**: observed_entropy / maximum_possible_entropy
-3. **Variance Factor**: 1 - |variance - optimal_variance| / optimal_variance
-4. **Overall Score**: Mean of all factors
-
-**Information Content**: Shannon entropy of the distribution
-**Statistical Power**: Ability to detect true effects (Cohen's conventions)
-
-## 3.3 Pattern Caching Mechanism
-
-### 3.3.1 Cache Structure
-
-The caching system uses a structured approach to store learned patterns:
-
-```
-CachedPattern:
-├── pattern_type: string (e.g., "ktas_distribution")
-├── data_hash: string (MD5 of source data)
-├── timestamp: datetime (when pattern was learned)
-├── pattern_data: dictionary (actual pattern values)
-└── metadata: dictionary (quality metrics, sample sizes)
+```python
+hash_input = f"{table_name}_{row_count}_{sample_data.to_string()}"
+data_hash = hashlib.md5(hash_input.encode()).hexdigest()
 ```
 
-### 3.3.2 Cache Management
+- 테이블 행 수 + 1000행 랜덤 샘플의 문자열 표현으로 MD5 해시 생성
+- 원본 데이터 변경 시 해시가 달라져 자동 캐시 무효화
 
-- **Cache Key**: Combination of table name, pattern type, and data hash
-- **Invalidation**: Automatic when source data changes
-- **Storage**: JSON files in `cache/patterns/` directory
-- **Performance**: 100x speedup for repeated analyses
+### Storage
+
+- **분석 결과**: `cache/patterns/{analysis_type}_{data_hash}.pkl` (Pickle)
+- **메타데이터**: `cache/patterns/cache_metadata.json` (JSON)
+- **선택적 삭제**: `clear_cache(analysis_type)` — 특정 분석만 재수행 가능
+
+### Performance
+
+- 최초 분석: 10개 SQL 쿼리 실행 (수 초~수십 초)
+- 캐시 적중: Pickle 로드만 수행 (밀리초 단위)
+
+---
+
+## 3.8 Source Table Configuration
+
+소스 테이블은 다음 순서로 결정:
+
+1. `config['original.source_table']` — 명시적 테이블명
+2. `config['original.year']` — 연도 기반 (`nedis_original.nedis{year}`)
+3. 기본값: `nedis_original.nedis2017`
+
+---
+
+## 3.9 Related Modules
+
+- **Consumer**: `VectorizedPatientGenerator` — 분석된 패턴을 소비하여 환자 생성
+- **Consumer**: `TemporalPatternAssigner` — 조건부 시간 분포를 시간 할당에 사용
+- **Consumer**: HTML Generator (`templates/nedis_generator_template.html`) — 패턴을 base64로 임베딩
+- **Validation**: `CorrelationBalanceValidator` — 생성된 데이터의 상관관계 검증
 
 ---

@@ -56,3 +56,27 @@ This document summarizes the vectorized synthetic data generation system — its
 - All fallback behavior is driven by configuration (see `config/generation_params.yaml`).
 - CLI controls batch sizes, temporal resolution, capacity multipliers, overflow redistribution strategy, and quality gate threshold.
 
+## Browser-Based HTML Generator
+
+- `scripts/build_html_generator.py` builds a single self-contained HTML file (`outputs/html_generator/nedis_generator.html`).
+- Pattern data from `outputs/html_generator/patterns.json` is zlib-compressed and base64-encoded into the HTML template.
+- Template: `templates/nedis_generator_template.html` with `%%PATTERNS_BASE64%%` placeholder.
+- Multi-worker parallelization for browser-based generation.
+- Outputs use NEDIS 4.0 column IDs (ptmiemcd, ptmiindt, etc.).
+
+## Iterative Quality Loop
+
+- `scripts/iterative_synthetic_quality_loop.py` implements a generate-validate-adjust loop.
+- Correlation and temporal quality controls drive iterative improvement.
+- Uses `CorrelationBalanceValidator` (Cramer's V, Pearson, correlation ratio) to assess quality.
+
+## Comparison Visualization
+
+- `src/comparison/visualization.py` generates side-by-side HTML reports comparing original vs synthetic distributions.
+- Supports categorical, numerical, and temporal column types.
+
+## Privacy-Enhanced Generation
+
+- `src/generation/enhanced_synthetic_generator.py` wraps the base pipeline with a 7-phase privacy protection workflow.
+- Integrates `src/privacy/` modules: identifier management, generalization, k-anonymity enforcement, differential privacy, and validation.
+

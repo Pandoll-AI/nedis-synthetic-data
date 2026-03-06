@@ -1015,25 +1015,30 @@ RECOMMENDED_SETTINGS = {
 - 캐싱 시스템을 통한 효율적인 재분석
 - 모듈화된 구조로 개별 컴포넌트 교체 가능
 
-#### 1.2 개인정보보호 위험도 🚨
+#### 1.2 개인정보보호 현황
 
-**현재 위험 수준**: **HIGH (고위험)**
+**프라이버시 모듈 구현 상태**: **구현 완료** (`src/privacy/`)
 
-| 공격 시나리오 | 성공 확률 | 심각도 | 대상 규모 |
-|-------------|----------|--------|----------|
-| 지역-병원-시간 삼중 지문 | 85-95% | 🔴 극고 | 개별 환자 |
-| 희귀 패턴 식별 | 90-95% | 🔴 고 | 희귀질환자 |
-| 캐시 기반 차분 공격 | 60-100% | 🟡 중 | 지역 단위 |
-| 외부 데이터 연결 | 40-70% | 🟡 중 | 지역 단위 |
-| 알고리즘 역전 | 60-90% | 🟡 중 | 전체 |
+`EnhancedSyntheticGenerator`를 통해 7단계 프라이버시 보호 파이프라인이 구현되어 있습니다:
 
-#### 1.3 주요 취약점
+| 보호 기법 | 구현 모듈 | 상태 |
+|----------|----------|------|
+| Identifier Management | `src/privacy/identifier_manager.py` | 구현 완료 |
+| K-Anonymity (검증+강제) | `src/privacy/k_anonymity.py` | 구현 완료 |
+| L-Diversity / T-Closeness 검증 | `src/privacy/privacy_validator.py` | 구현 완료 |
+| Age/Region/Temporal Generalization | `src/privacy/generalization.py` | 구현 완료 |
+| Differential Privacy (Laplace/Gaussian) | `src/privacy/differential_privacy.py` | 구현 완료 |
+| Privacy Budget Accounting | `src/privacy/differential_privacy.py` | 구현 완료 |
+| Privacy Validation Report | `src/privacy/privacy_validator.py` | 구현 완료 |
 
-1. **과도한 세부성**: 4자리 지역코드, 정확한 시간, 특정 병원 식별 정보
-2. **패턴 완전 보존**: 원본과 거의 동일한 분포로 인한 역추론 위험
-3. **보안 메커니즘 부족**: 차등 프라이버시, k-익명성 등 기본 보호 기법 미적용
-4. **캐시 보안 취약**: 원본 분포 정보가 평문으로 저장
-5. **투명한 알고리즘**: 오픈소스로 인한 역산 공격 가능성
+**주의**: 아래 "재식별 공격 시나리오" 섹션은 프라이버시 보호 **미적용** 상태(base generation만 사용)에서의 위험을 분석한 것입니다. `EnhancedSyntheticGenerator`의 보호 기법을 활성화하면 위험이 대폭 감소합니다.
+
+#### 1.3 잔여 고려사항
+
+프라이버시 모듈 구현 완료에도 불구하고, 운영 시 다음을 고려해야 합니다:
+1. **보호 수준 파라미터 조정**: k-anonymity k값, DP epsilon 등의 적절한 설정
+2. **캐시 보안**: 원본 분포 정보가 평문 Pickle로 저장됨 (접근 제어 필요)
+3. **보호 기법 활성화 확인**: base pipeline에서는 프라이버시 보호가 자동 적용되지 않으며, `EnhancedSyntheticGenerator`를 사용해야 함
 
 ### 2. 단계별 개선 로드맵
 
@@ -1141,4 +1146,4 @@ adaptive_noise = calculate_adaptive_noise(pattern_type, data_size)
 
 ---
 
-*본 분석은 2025년 1월 기준으로 작성되었으며, 실제 소스 코드를 바탕으로 한 기술적 분석 결과입니다.*
+*본 분석은 2025년 1월 기준으로 작성되었으며, 이후 프라이버시 모듈(`src/privacy/`)과 `EnhancedSyntheticGenerator`가 구현 완료되었습니다. 재식별 공격 시나리오는 보호 미적용 시의 분석이며, 프라이버시 파이프라인 활성화 시 위험이 대폭 감소합니다. 최종 갱신: 2026-03-06.*
