@@ -30,8 +30,9 @@ NEDIS 합성 데이터 생성 시스템의 기술 문서 인덱스입니다. 모
 
 | 문서 | 내용 |
 |------|------|
-| [Revision v0.3](revision_v0.3.md) | v0.3 변경 이력 |
-| [Revision v0.4](revision_v0.4.md) | v0.4 변경 이력 |
+| [Revision v0.5](revision_v0.5.md) | NEDIS 4.0 마이그레이션 + 임상 일관성 (결측값 보존, 조건부 생성, KTAS 코드) |
+| [Revision v0.4](revision_v0.4.md) | 시간 패턴 버그 수정 |
+| [Revision v0.3](revision_v0.3.md) | 동적 분포 전환, 품질 게이트 |
 
 ---
 
@@ -70,10 +71,11 @@ NEDIS 합성 데이터 생성 시스템의 기술 문서 인덱스입니다. 모
 | 파일 | 용도 |
 |------|------|
 | [CLAUDE.md](../CLAUDE.md) | 개발 가이드라인 및 코딩 규칙 |
+| [CHANGELOG.md](../CHANGELOG.md) | 전체 버전별 변경 이력 |
 | [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) | 초기 구현 계획 (Historical) |
 | [NEDIS_CODEBOOK.md](../NEDIS_CODEBOOK.md) | 2017 표본자료 코드북 |
 | `reference/NEDIS_VARIABLE_MAPPING.md` | 표본자료 ↔ NEDIS 4.0 변수 매칭표 |
 
 ---
 
-*최종 갱신: 2026-03-06. 실제 소스 코드 기반으로 검증된 문서입니다.*
+*최종 갱신: 2026-03-07. 실제 소스 코드 기반으로 검증된 문서입니다.*
