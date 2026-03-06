@@ -148,11 +148,11 @@ class DurationGenerator:
         try:
             # 해당 날짜 임상 레코드 조회
             clinical_records = self.db.fetch_dataframe("""
-                SELECT 
-                    index_key, vst_dt, vst_tm, pat_age_gr, 
-                    ktas_fstu, emtrt_rust, otrm_dt, otrm_tm
+                SELECT
+                    index_key, ptmiindt, ptmiintm, ptmibrtd,
+                    ptmikts1, ptmiemrt, ptmiotdt, ptmiottm
                 FROM nedis_synthetic.clinical_records
-                WHERE vst_dt = ?
+                WHERE ptmiindt = ?
                 ORDER BY index_key
             """, [date_str])
             
@@ -167,13 +167,13 @@ class DurationGenerator:
             admission_duration_updates = []
             
             for _, patient in clinical_records.iterrows():
-                # ER 체류시간 재계산 (기존 otrm_dt, otrm_tm을 덮어씀)
+                # ER 체류시간 재계산 (기존 ptmiotdt, ptmiottm을 덮어씀)
                 er_duration_update = self._generate_er_duration(patient)
                 if er_duration_update:
                     er_duration_updates.append(er_duration_update)
                 
                 # 입원 환자의 경우 입원 기간 생성
-                if patient['emtrt_rust'] in ['31', '32']:
+                if patient['ptmiemrt'] in ['31', '32']:
                     admission_update = self._generate_admission_duration(patient)
                     if admission_update:
                         admission_duration_updates.append(admission_update)
@@ -190,8 +190,8 @@ class DurationGenerator:
                 'patients_processed': total_patients,
                 'er_durations_updated': len(er_duration_updates),
                 'admission_durations_generated': len(admission_duration_updates),
-                'admission_patients': sum(1 for p in clinical_records.itertuples() 
-                                        if p.emtrt_rust in ['31', '32']),
+                'admission_patients': sum(1 for p in clinical_records.itertuples()
+                                        if p.ptmiemrt in ['31', '32']),
                 'duration_summary': self._get_duration_summary(er_duration_updates, admission_duration_updates)
             }
             
@@ -219,21 +219,21 @@ class DurationGenerator:
         
         try:
             index_key = patient['index_key']
-            vst_dt = patient['vst_dt']
-            vst_tm = patient['vst_tm']
-            pat_age_gr = patient['pat_age_gr']
-            ktas_level = patient['ktas_fstu']
-            emtrt_rust = patient['emtrt_rust']
+            ptmiindt = patient['ptmiindt']
+            ptmiintm = patient['ptmiintm']
+            ptmibrtd = patient['ptmibrtd']
+            ktas_level = patient['ptmikts1']
+            ptmiemrt = patient['ptmiemrt']
             
             # KTAS별 체류시간 파라미터 조회
             duration_params = self.er_duration_params.get(ktas_level, self.er_duration_params['3'])
             
             # 연령 조정 계수 적용
-            age_factor = self.age_duration_factors.get(pat_age_gr, 1.0)
+            age_factor = self.age_duration_factors.get(ptmibrtd, 1.0)
             adjusted_mean = duration_params['mean'] * age_factor
             
             # 치료결과에 따른 추가 조정
-            result_factor = self._get_treatment_result_duration_factor(emtrt_rust)
+            result_factor = self._get_treatment_result_duration_factor(ptmiemrt)
             adjusted_mean *= result_factor
             
             # 체류시간 생성 (로그정규분포 사용)
@@ -247,13 +247,13 @@ class DurationGenerator:
             )
             
             # 퇴실시간 계산
-            otrm_dt, otrm_tm = self._calculate_discharge_time(vst_dt, vst_tm, duration_minutes)
+            ptmiotdt, ptmiottm = self._calculate_discharge_time(ptmiindt, ptmiintm, duration_minutes)
             
             return {
                 'index_key': index_key,
                 'duration_minutes': duration_minutes,
-                'otrm_dt': otrm_dt,
-                'otrm_tm': otrm_tm
+                'ptmiotdt': ptmiotdt,
+                'ptmiottm': ptmiottm
             }
             
         except Exception as e:
@@ -273,26 +273,26 @@ class DurationGenerator:
         
         try:
             index_key = patient['index_key']
-            emtrt_rust = patient['emtrt_rust']
-            pat_age_gr = patient['pat_age_gr']
-            
+            ptmiemrt = patient['ptmiemrt']
+            ptmibrtd = patient['ptmibrtd']
+
             # 입원 시작시간 = ER 퇴실시간 + 30-90분
             er_discharge_time = datetime.strptime(
-                f"{patient['otrm_dt']}{patient['otrm_tm']}", "%Y%m%d%H%M"
+                f"{patient['ptmiotdt']}{patient['ptmiottm']}", "%Y%m%d%H%M"
             )
             
             admission_delay = np.random.randint(30, 91)  # 30-90분 지연
             admission_start = er_discharge_time + timedelta(minutes=admission_delay)
             
-            inpat_dt = admission_start.strftime("%Y%m%d")
-            inpat_tm = admission_start.strftime("%H%M")
+            ptmihsdt = admission_start.strftime("%Y%m%d")
+            ptmihstm = admission_start.strftime("%H%M")
             
             # 입원 기간 생성
-            admission_params = self.admission_duration_params.get(emtrt_rust, self.admission_duration_params['31'])
+            admission_params = self.admission_duration_params.get(ptmiemrt, self.admission_duration_params['31'])
             
             # 연령별 조정 (고령자는 입원 기간 증가)
-            age_factor = self.age_duration_factors.get(pat_age_gr, 1.0)
-            if pat_age_gr in ['70', '80', '90']:
+            age_factor = self.age_duration_factors.get(ptmibrtd, 1.0)
+            if ptmibrtd in ['70', '80', '90']:
                 age_factor *= 1.3  # 고령자 입원 기간 30% 증가
             
             adjusted_mean = admission_params['mean'] * age_factor
@@ -308,14 +308,14 @@ class DurationGenerator:
             )
             
             # 입원 결과 생성
-            inpat_rust = self._generate_admission_outcome(emtrt_rust, admission_days, pat_age_gr)
+            ptmidcrt = self._generate_admission_outcome(ptmiemrt, admission_days, ptmibrtd)
             
             return {
                 'index_key': index_key,
-                'inpat_dt': inpat_dt,
-                'inpat_tm': inpat_tm,
+                'ptmihsdt': ptmihsdt,
+                'ptmihstm': ptmihstm,
                 'admission_days': admission_days,
-                'inpat_rust': inpat_rust
+                'ptmidcrt': ptmidcrt
             }
             
         except Exception as e:
@@ -391,20 +391,20 @@ class DurationGenerator:
         
         return days
     
-    def _generate_admission_outcome(self, emtrt_rust: str, admission_days: int, pat_age_gr: str) -> str:
+    def _generate_admission_outcome(self, ptmiemrt: str, admission_days: int, ptmibrtd: str) -> str:
         """
         입원 기간과 환자 특성 기반 입원 결과 생성
         
         Args:
-            emtrt_rust: 응급치료결과 (31: 병실입원, 32: 중환자실입원)
+            ptmiemrt: 응급치료결과 (31: 병실입원, 32: 중환자실입원)
             admission_days: 입원 기간
-            pat_age_gr: 연령군
+            ptmibrtd: 연령군
             
         Returns:
             입원 결과 코드 ('1': 완쾌, '2': 호전, '3': 미호전, '4': 사망)
         """
         
-        base_probs = self.admission_outcome_probs.get(emtrt_rust, self.admission_outcome_probs['31'])
+        base_probs = self.admission_outcome_probs.get(ptmiemrt, self.admission_outcome_probs['31'])
         adjusted_probs = base_probs.copy()
         
         # 입원 기간에 따른 조정
@@ -420,10 +420,10 @@ class DurationGenerator:
             adjusted_probs['4'] *= 0.3  # 사망 확률 감소
         
         # 연령에 따른 조정
-        if pat_age_gr in ['80', '90']:  # 고령자
+        if ptmibrtd in ['80', '90']:  # 고령자
             adjusted_probs['4'] *= 2.0  # 사망 확률 2배
             adjusted_probs['1'] *= 0.6  # 완쾌 확률 감소
-        elif pat_age_gr in ['01', '09', '10']:  # 소아/청소년
+        elif ptmibrtd in ['01', '09', '10']:  # 소아/청소년
             adjusted_probs['1'] *= 1.3  # 완쾌 확률 증가
             adjusted_probs['4'] *= 0.2  # 사망 확률 매우 낮음
         
@@ -438,12 +438,12 @@ class DurationGenerator:
         
         return np.random.choice(outcomes, p=probabilities)
     
-    def _get_treatment_result_duration_factor(self, emtrt_rust: str) -> float:
+    def _get_treatment_result_duration_factor(self, ptmiemrt: str) -> float:
         """
         치료결과에 따른 체류시간 조정 계수
         
         Args:
-            emtrt_rust: 응급치료결과
+            ptmiemrt: 응급치료결과
             
         Returns:
             체류시간 조정 계수
@@ -458,15 +458,15 @@ class DurationGenerator:
             '43': 0.7    # 타병원전원 - 짧은 체류
         }
         
-        return duration_factors.get(emtrt_rust, 1.0)
+        return duration_factors.get(ptmiemrt, 1.0)
     
-    def _calculate_discharge_time(self, vst_dt: str, vst_tm: str, duration_minutes: int) -> Tuple[str, str]:
+    def _calculate_discharge_time(self, ptmiindt: str, ptmiintm: str, duration_minutes: int) -> Tuple[str, str]:
         """
         방문시간과 체류시간으로 퇴실시간 계산
         
         Args:
-            vst_dt: 방문 날짜 ('YYYYMMDD')
-            vst_tm: 방문 시간 ('HHMM')
+            ptmiindt: 방문 날짜 ('YYYYMMDD')
+            ptmiintm: 방문 시간 ('HHMM')
             duration_minutes: 체류시간 (분)
             
         Returns:
@@ -475,21 +475,21 @@ class DurationGenerator:
         
         try:
             # 방문시간을 datetime으로 변환
-            arrival_time = datetime.strptime(f"{vst_dt}{vst_tm}", "%Y%m%d%H%M")
+            arrival_time = datetime.strptime(f"{ptmiindt}{ptmiintm}", "%Y%m%d%H%M")
             
             # 체류시간 추가
             discharge_time = arrival_time + timedelta(minutes=duration_minutes)
             
             # 날짜와 시간 분리
-            otrm_dt = discharge_time.strftime("%Y%m%d")
-            otrm_tm = discharge_time.strftime("%H%M")
+            ptmiotdt = discharge_time.strftime("%Y%m%d")
+            ptmiottm = discharge_time.strftime("%H%M")
             
-            return otrm_dt, otrm_tm
+            return ptmiotdt, ptmiottm
             
         except Exception as e:
             self.logger.error(f"Discharge time calculation failed: {e}")
             # 실패 시 기본값 반환 (방문일 + 2시간)
-            fallback_time = datetime.strptime(f"{vst_dt}{vst_tm}", "%Y%m%d%H%M") + timedelta(hours=2)
+            fallback_time = datetime.strptime(f"{ptmiindt}{ptmiintm}", "%Y%m%d%H%M") + timedelta(hours=2)
             return fallback_time.strftime("%Y%m%d"), fallback_time.strftime("%H%M")
     
     def _batch_update_er_durations(self, duration_updates: List[Dict[str, Any]]):
@@ -503,15 +503,15 @@ class DurationGenerator:
         try:
             update_sql = """
                 UPDATE nedis_synthetic.clinical_records
-                SET otrm_dt = ?, otrm_tm = ?
+                SET ptmiotdt = ?, ptmiottm = ?
                 WHERE index_key = ?
             """
-            
+
             batch_data = []
             for update in duration_updates:
                 batch_data.append((
-                    update['otrm_dt'],
-                    update['otrm_tm'],
+                    update['ptmiotdt'],
+                    update['ptmiottm'],
                     update['index_key']
                 ))
             
@@ -539,16 +539,16 @@ class DurationGenerator:
         try:
             update_sql = """
                 UPDATE nedis_synthetic.clinical_records
-                SET inpat_dt = ?, inpat_tm = ?, inpat_rust = ?
+                SET ptmihsdt = ?, ptmihstm = ?, ptmidcrt = ?
                 WHERE index_key = ?
             """
-            
+
             batch_data = []
             for update in admission_updates:
                 batch_data.append((
-                    update['inpat_dt'],
-                    update['inpat_tm'],
-                    update['inpat_rust'],
+                    update['ptmihsdt'],
+                    update['ptmihstm'],
+                    update['ptmidcrt'],
                     update['index_key']
                 ))
             
@@ -599,7 +599,7 @@ class DurationGenerator:
         # 입원 기간 요약
         if admission_updates:
             admission_days = [update['admission_days'] for update in admission_updates]
-            outcomes = [update['inpat_rust'] for update in admission_updates]
+            outcomes = [update['ptmidcrt'] for update in admission_updates]
             
             summary['admission_duration_summary'] = {
                 'total_patients': len(admission_days),
@@ -717,11 +717,11 @@ class DurationGenerator:
         try:
             # 시간 데이터 조회
             time_data = self.db.fetch_dataframe("""
-                SELECT 
-                    index_key, vst_dt, vst_tm, otrm_dt, otrm_tm,
-                    inpat_dt, inpat_tm, inpat_rust, emtrt_rust, ktas_fstu
+                SELECT
+                    index_key, ptmiindt, ptmiintm, ptmiotdt, ptmiottm,
+                    ptmihsdt, ptmihstm, ptmidcrt, ptmiemrt, ptmikts1
                 FROM nedis_synthetic.clinical_records
-                WHERE vst_dt = ?
+                WHERE ptmiindt = ?
             """, [date_str])
             
             if len(time_data) == 0:
@@ -735,14 +735,14 @@ class DurationGenerator:
             
             for _, record in time_data.iterrows():
                 # 방문시간 < 퇴실시간 검증
-                vst_time = datetime.strptime(f"{record['vst_dt']}{record['vst_tm']}", "%Y%m%d%H%M")
-                otrm_time = datetime.strptime(f"{record['otrm_dt']}{record['otrm_tm']}", "%Y%m%d%H%M")
-                
+                vst_time = datetime.strptime(f"{record['ptmiindt']}{record['ptmiintm']}", "%Y%m%d%H%M")
+                otrm_time = datetime.strptime(f"{record['ptmiotdt']}{record['ptmiottm']}", "%Y%m%d%H%M")
+
                 if vst_time >= otrm_time:
                     validation_results['violations'].append({
                         'index_key': record['index_key'],
                         'violation_type': 'discharge_before_arrival',
-                        'message': f"Discharge time {record['otrm_dt']}{record['otrm_tm']} before arrival {record['vst_dt']}{record['vst_tm']}"
+                        'message': f"Discharge time {record['ptmiotdt']}{record['ptmiottm']} before arrival {record['ptmiindt']}{record['ptmiintm']}"
                     })
                 
                 # 체류시간 타당성 검증
@@ -756,14 +756,14 @@ class DurationGenerator:
                     })
                 
                 # 입원 시간 일관성 검증
-                if record['emtrt_rust'] in ['31', '32'] and pd.notna(record['inpat_dt']):
-                    inpat_time = datetime.strptime(f"{record['inpat_dt']}{record['inpat_tm']}", "%Y%m%d%H%M")
-                    
+                if record['ptmiemrt'] in ['31', '32'] and pd.notna(record['ptmihsdt']):
+                    inpat_time = datetime.strptime(f"{record['ptmihsdt']}{record['ptmihstm']}", "%Y%m%d%H%M")
+
                     if inpat_time < otrm_time:
                         validation_results['violations'].append({
                             'index_key': record['index_key'],
                             'violation_type': 'admission_before_discharge',
-                            'message': f"Admission time {record['inpat_dt']}{record['inpat_tm']} before ER discharge"
+                            'message': f"Admission time {record['ptmihsdt']}{record['ptmihstm']} before ER discharge"
                         })
             
             # 요약 통계

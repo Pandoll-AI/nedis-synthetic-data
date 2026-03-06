@@ -68,27 +68,27 @@ validation:
     capacity: 0.05
   correlation_pairs:
     - name: ktas_age
-      left: ktas_fstu
-      right: pat_age_gr
+      left: ptmikts1
+      right: ptmibrtd
       method: cramers_v
       weight: 1.0
     - name: ktas_sex
-      left: ktas_fstu
-      right: pat_sex
+      left: ptmikts1
+      right: ptmisexx
       method: cramers_v
       weight: 1.0
     - name: age_hour
-      left: pat_age_gr
+      left: ptmibrtd
       right: hour
       method: auto
       weight: 1.0
     - name: sex_hour
-      left: pat_sex
+      left: ptmisexx
       right: hour
       method: auto
       weight: 0.8
     - name: ktas_hour
-      left: ktas_fstu
+      left: ptmikts1
       right: hour
       method: auto
       weight: 1.0

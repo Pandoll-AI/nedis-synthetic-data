@@ -32,13 +32,13 @@ def create_test_data(n_records: int = 500) -> pd.DataFrame:
     areas = np.random.choice(['1101', '1102', '2101', '2102'], n_records, p=[0.3, 0.3, 0.2, 0.2])
     
     data = {
-        'pat_reg_no': [f'P{i:06d}' for i in range(n_records)],
+        'ptmiidno': [f'P{i:06d}' for i in range(n_records)],
         'pat_age': ages,
-        'pat_sex': np.random.choice(['M', 'F'], n_records, p=[0.55, 0.45]),
-        'pat_sarea': areas,
+        'ptmisexx': np.random.choice(['1', '2'], n_records, p=[0.55, 0.45]),
+        'ptmizipc': areas,
         'ktas_lv': np.random.choice([1, 2, 3, 4, 5], n_records, p=[0.05, 0.15, 0.30, 0.35, 0.15]),
-        'vst_dt': np.random.choice(['20170101', '20170102', '20170103'], n_records),
-        'vst_tm': [f'{np.random.choice([8, 10, 14, 16, 20]):02d}00' for _ in range(n_records)],
+        'ptmiindt': np.random.choice(['20170101', '20170102', '20170103'], n_records),
+        'ptmiintm': [f'{np.random.choice([8, 10, 14, 16, 20]):02d}00' for _ in range(n_records)],
         'sbp': np.random.normal(120, 20, n_records),
         'dbp': np.random.normal(80, 10, n_records),
         'pr': np.random.normal(80, 15, n_records),
@@ -68,7 +68,7 @@ def test_privacy_enhancement_pipeline():
     validator = PrivacyValidator(k_threshold=5, l_threshold=3)
     initial_validation = validator.validate(
         original_df,
-        quasi_identifiers=['pat_age', 'pat_sex', 'pat_sarea', 'ktas_lv'],
+        quasi_identifiers=['pat_age', 'ptmisexx', 'ptmizipc', 'ktas_lv'],
         sensitive_attributes=['ed_diag', 'outcome']
     )
     print(f"   K-anonymity: {initial_validation.overall_metrics.k_anonymity}")
@@ -100,8 +100,8 @@ def test_privacy_enhancement_pipeline():
     print("\n5. Applying Geographic Generalization")
     geo_gen = GeographicGeneralizer()
     # Since our test data already has 4-digit codes, generalize to 2-digit province level
-    enhanced_df['pat_sarea'] = geo_gen.generalize_series(
-        enhanced_df['pat_sarea'],
+    enhanced_df['ptmizipc'] = geo_gen.generalize_series(
+        enhanced_df['ptmizipc'],
         target_level='province'
     )
     print(f"   ✓ Generalized geographic codes to province level")
@@ -109,7 +109,7 @@ def test_privacy_enhancement_pipeline():
     # Step 4: Temporal Generalization
     print("\n6. Applying Temporal Generalization")
     temp_gen = TemporalGeneralizer()
-    enhanced_df['vst_tm'] = enhanced_df['vst_tm'].apply(
+    enhanced_df['ptmiintm'] = enhanced_df['ptmiintm'].apply(
         lambda x: temp_gen.round_time(x, 'hour')
     )
     print(f"   ✓ Generalized visit times to hour precision")
@@ -120,7 +120,7 @@ def test_privacy_enhancement_pipeline():
     # Use fewer quasi-identifiers for better k-anonymity
     enhanced_df, k_stats = k_enforcer.enforce(
         enhanced_df,
-        ['pat_age', 'pat_sex', 'pat_sarea'],  # Removed ktas_lv for better grouping
+        ['pat_age', 'ptmisexx', 'ptmizipc'],  # Removed ktas_lv for better grouping
         method='generalize'  # Use generalization instead of suppression
     )
     print(f"   ✓ K-anonymity enforced")
@@ -147,7 +147,7 @@ def test_privacy_enhancement_pipeline():
     print("\n9. Final Privacy Assessment")
     final_validation = validator.validate(
         enhanced_df,
-        quasi_identifiers=['pat_age', 'pat_sex', 'pat_sarea', 'ktas_lv'],
+        quasi_identifiers=['pat_age', 'ptmisexx', 'ptmizipc', 'ktas_lv'],
         sensitive_attributes=['ed_diag', 'outcome']
     )
     print(f"   K-anonymity: {final_validation.overall_metrics.k_anonymity}")
@@ -200,8 +200,8 @@ def test_privacy_enhancement_pipeline():
     print(f"   {'Age Mean':<25} {orig_age_mean:<15.1f} {enh_age_mean:<15.1f} {abs(orig_age_mean - enh_age_mean):<15.1f}")
     
     # Gender distribution
-    orig_male_pct = (original_df['pat_sex'] == 'M').mean() * 100
-    enh_male_pct = (enhanced_df['pat_sex'] == 'M').mean() * 100
+    orig_male_pct = (original_df['ptmisexx'] == '1').mean() * 100
+    enh_male_pct = (enhanced_df['ptmisexx'] == '1').mean() * 100
     print(f"   {'Male %':<25} {orig_male_pct:<15.1f} {enh_male_pct:<15.1f} {abs(orig_male_pct - enh_male_pct):<15.1f}")
     
     # KTAS distribution

@@ -162,16 +162,16 @@ class NHPPTemporalGenerator:
             # 시간 가중치 정보와 함께 조회
             query = f"""
             SELECT 
-                yv.pat_do_cd, yv.pat_age_gr, yv.pat_sex, yv.synthetic_yearly_count,
+                yv.ptmizipc, yv.ptmibrtd, yv.ptmisexx, yv.synthetic_yearly_count,
                 pm.seasonal_weight_spring, pm.seasonal_weight_summer,
                 pm.seasonal_weight_fall, pm.seasonal_weight_winter,
                 pm.weekday_weight, pm.weekend_weight
             FROM nedis_synthetic.yearly_volumes yv
             JOIN nedis_meta.population_margins pm 
-                ON yv.pat_do_cd = pm.pat_do_cd 
-                AND yv.pat_age_gr = pm.pat_age_gr 
-                AND yv.pat_sex = pm.pat_sex
-            ORDER BY yv.pat_do_cd, yv.pat_age_gr, yv.pat_sex
+                ON yv.ptmizipc = pm.ptmizipc 
+                AND yv.ptmibrtd = pm.ptmibrtd 
+                AND yv.ptmisexx = pm.ptmisexx
+            ORDER BY yv.ptmizipc, yv.ptmibrtd, yv.ptmisexx
             LIMIT {self.chunk_size} OFFSET {offset}
             """
             
@@ -242,9 +242,9 @@ class NHPPTemporalGenerator:
             if daily_counts[i] > 0:  # 0인 날은 저장하지 않음 (저장 공간 절약)
                 results.append((
                     date_str,
-                    volume_row['pat_do_cd'],
-                    volume_row['pat_age_gr'], 
-                    volume_row['pat_sex'],
+                    volume_row['ptmizipc'],
+                    volume_row['ptmibrtd'], 
+                    volume_row['ptmisexx'],
                     daily_counts[i],
                     lambda_values[i]
                 ))
@@ -281,7 +281,7 @@ class NHPPTemporalGenerator:
         try:
             # DataFrame으로 변환
             daily_df = pd.DataFrame(daily_batch, columns=[
-                'vst_dt', 'pat_do_cd', 'pat_age_gr', 'pat_sex', 
+                'ptmiindt', 'ptmizipc', 'ptmibrtd', 'ptmisexx', 
                 'synthetic_daily_count', 'lambda_value'
             ])
             
@@ -321,13 +321,13 @@ class NHPPTemporalGenerator:
             basic_stats_query = """
             SELECT 
                 COUNT(*) as total_daily_records,
-                COUNT(DISTINCT vst_dt) as unique_dates,
+                COUNT(DISTINCT ptmiindt) as unique_dates,
                 SUM(synthetic_daily_count) as total_visits,
                 AVG(synthetic_daily_count) as avg_daily_visits,
                 MIN(synthetic_daily_count) as min_daily_visits,
                 MAX(synthetic_daily_count) as max_daily_visits,
                 AVG(lambda_value) as avg_lambda,
-                COUNT(DISTINCT pat_do_cd || '|' || pat_age_gr || '|' || pat_sex) as unique_combinations
+                COUNT(DISTINCT ptmizipc || '|' || ptmibrtd || '|' || ptmisexx) as unique_combinations
             FROM nedis_synthetic.daily_volumes
             """
             
@@ -337,10 +337,10 @@ class NHPPTemporalGenerator:
             # 날짜별 총 방문수 분포 (상위 10일)
             daily_totals_query = """
             SELECT 
-                vst_dt,
+                ptmiindt,
                 SUM(synthetic_daily_count) as daily_total,
                 -- 요일 계산
-                CASE DAYOFWEEK(CAST(vst_dt AS DATE))
+                CASE DAYOFWEEK(CAST(ptmiindt AS DATE))
                     WHEN 1 THEN 'Sunday'
                     WHEN 2 THEN 'Monday'
                     WHEN 3 THEN 'Tuesday'
@@ -350,7 +350,7 @@ class NHPPTemporalGenerator:
                     WHEN 7 THEN 'Saturday'
                 END as weekday
             FROM nedis_synthetic.daily_volumes
-            GROUP BY vst_dt
+            GROUP BY ptmiindt
             ORDER BY daily_total DESC
             LIMIT 10
             """
@@ -360,7 +360,7 @@ class NHPPTemporalGenerator:
             # 요일별 패턴 분석
             weekday_pattern_query = """
             SELECT 
-                CASE DAYOFWEEK(CAST(vst_dt AS DATE))
+                CASE DAYOFWEEK(CAST(ptmiindt AS DATE))
                     WHEN 1 THEN 'Sunday'
                     WHEN 2 THEN 'Monday'
                     WHEN 3 THEN 'Tuesday'
@@ -369,11 +369,11 @@ class NHPPTemporalGenerator:
                     WHEN 6 THEN 'Friday'
                     WHEN 7 THEN 'Saturday'
                 END as weekday,
-                DAYOFWEEK(CAST(vst_dt AS DATE)) as weekday_num,
+                DAYOFWEEK(CAST(ptmiindt AS DATE)) as weekday_num,
                 AVG(synthetic_daily_count) as avg_visits,
-                COUNT(DISTINCT vst_dt) as days_count
+                COUNT(DISTINCT ptmiindt) as days_count
             FROM nedis_synthetic.daily_volumes
-            GROUP BY DAYOFWEEK(CAST(vst_dt AS DATE))
+            GROUP BY DAYOFWEEK(CAST(ptmiindt AS DATE))
             ORDER BY weekday_num
             """
             
@@ -382,12 +382,12 @@ class NHPPTemporalGenerator:
             # 월별 패턴 분석
             monthly_pattern_query = """
             SELECT 
-                MONTH(CAST(vst_dt AS DATE)) as month,
+                MONTH(CAST(ptmiindt AS DATE)) as month,
                 AVG(synthetic_daily_count) as avg_daily_visits,
                 SUM(synthetic_daily_count) as total_monthly_visits,
-                COUNT(DISTINCT vst_dt) as days_in_month
+                COUNT(DISTINCT ptmiindt) as days_in_month
             FROM nedis_synthetic.daily_volumes
-            GROUP BY MONTH(CAST(vst_dt AS DATE))
+            GROUP BY MONTH(CAST(ptmiindt AS DATE))
             ORDER BY month
             """
             
@@ -410,9 +410,9 @@ class NHPPTemporalGenerator:
             # 1. 날짜 범위 확인
             date_range_query = """
             SELECT 
-                MIN(vst_dt) as min_date,
-                MAX(vst_dt) as max_date,
-                COUNT(DISTINCT vst_dt) as unique_dates
+                MIN(ptmiindt) as min_date,
+                MAX(ptmiindt) as max_date,
+                COUNT(DISTINCT ptmiindt) as unique_dates
             FROM nedis_synthetic.daily_volumes
             """
             
@@ -459,9 +459,9 @@ class NHPPTemporalGenerator:
             # 4. 극값 확인 (일별 방문수)
             extreme_query = """
             WITH daily_totals AS (
-                SELECT vst_dt, SUM(synthetic_daily_count) as daily_total
+                SELECT ptmiindt, SUM(synthetic_daily_count) as daily_total
                 FROM nedis_synthetic.daily_volumes
-                GROUP BY vst_dt
+                GROUP BY ptmiindt
             ),
             stats AS (
                 SELECT 

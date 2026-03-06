@@ -75,8 +75,11 @@ def analyze_time_gaps(db_path='nedis_data.duckdb'):
     
     # Try different table names
     table_names = [
+        'nedis_original.emihptmi',
+        'nedis_data.emihptmi',
         'nedis_data.nedis2017',
-        'nedis_original.nedis2017', 
+        'nedis_original.nedis2017',
+        'main.emihptmi',
         'main.nedis2017',
         'nedis2017'
     ]
@@ -98,17 +101,17 @@ def analyze_time_gaps(db_path='nedis_data.duckdb'):
     # Fetch data with datetime columns and KTAS levels
     query = f"""
     SELECT 
-        ktas01,
-        emtrt_rust,
-        vst_dt, vst_tm,
-        ocur_dt, ocur_tm,
-        otrm_dt, otrm_tm,
-        inpat_dt, inpat_tm,
+        ptmikpr1,
+        ptmiemrt,
+        ptmiindt, ptmiintm,
+        ptmiakdt, ptmiaktm,
+        ptmiotdt, ptmiottm,
+        ptmihsdt, ptmihstm,
         otpat_dt, otpat_tm
     FROM {table_found}
-    WHERE ktas01 IS NOT NULL 
-        AND ktas01 >= 1 
-        AND ktas01 <= 5
+    WHERE ptmikpr1 IS NOT NULL 
+        AND ptmikpr1 >= 1 
+        AND ptmikpr1 <= 5
     LIMIT 100000
     """
     
@@ -118,10 +121,10 @@ def analyze_time_gaps(db_path='nedis_data.duckdb'):
     
     # Convert datetime columns
     logger.info("Parsing datetime columns...")
-    df['vst_datetime'] = df.apply(lambda x: parse_nedis_datetime(x['vst_dt'], x['vst_tm']), axis=1)
-    df['ocur_datetime'] = df.apply(lambda x: parse_nedis_datetime(x['ocur_dt'], x['ocur_tm']), axis=1)
-    df['otrm_datetime'] = df.apply(lambda x: parse_nedis_datetime(x['otrm_dt'], x['otrm_tm']), axis=1)
-    df['inpat_datetime'] = df.apply(lambda x: parse_nedis_datetime(x['inpat_dt'], x['inpat_tm']), axis=1)
+    df['vst_datetime'] = df.apply(lambda x: parse_nedis_datetime(x['ptmiindt'], x['ptmiintm']), axis=1)
+    df['ocur_datetime'] = df.apply(lambda x: parse_nedis_datetime(x['ptmiakdt'], x['ptmiaktm']), axis=1)
+    df['otrm_datetime'] = df.apply(lambda x: parse_nedis_datetime(x['ptmiotdt'], x['ptmiottm']), axis=1)
+    df['inpat_datetime'] = df.apply(lambda x: parse_nedis_datetime(x['ptmihsdt'], x['ptmihstm']), axis=1)
     df['otpat_datetime'] = df.apply(lambda x: parse_nedis_datetime(x['otpat_dt'], x['otpat_tm']), axis=1)
     
     # Calculate time gaps
@@ -150,11 +153,11 @@ def analyze_time_gaps(db_path='nedis_data.duckdb'):
     results = {}
     
     for ktas in range(1, 6):
-        ktas_df = df[df['ktas01'] == ktas]
+        ktas_df = df[df['ptmikpr1'] == ktas]
         
         results[f'ktas_{ktas}'] = {
             'total_count': len(ktas_df),
-            'treatment_results': ktas_df['emtrt_rust'].value_counts().to_dict(),
+            'treatment_results': ktas_df['ptmiemrt'].value_counts().to_dict(),
             'time_gaps': {}
         }
         
@@ -184,13 +187,13 @@ def analyze_time_gaps(db_path='nedis_data.duckdb'):
     # Analyze by treatment result
     logger.info("Analyzing by treatment result...")
     
-    treatment_results = df['emtrt_rust'].unique()
+    treatment_results = df['ptmiemrt'].unique()
     for result in treatment_results:
         if pd.notna(result):
-            result_df = df[df['emtrt_rust'] == result]
+            result_df = df[df['ptmiemrt'] == result]
             
             for ktas in range(1, 6):
-                ktas_result_df = result_df[result_df['ktas01'] == ktas]
+                ktas_result_df = result_df[result_df['ptmikpr1'] == ktas]
                 
                 if len(ktas_result_df) > 10:  # Minimum sample size
                     key = f'ktas_{ktas}_result_{result}'

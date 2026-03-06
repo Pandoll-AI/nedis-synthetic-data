@@ -33,19 +33,19 @@ class IdentifierManager:
         
         # Direct identifiers to remove/replace
         self.direct_identifiers = [
-            'pat_reg_no',     # Patient registration number
+            'ptmiidno',     # Patient registration number
             'index_key',      # Original index
-            'pat_brdt',       # Birth date (convert to age)
-            'emorg_cd',       # Hospital code (may need generalization)
+            'ptmibrtd',       # Birth date (convert to age)
+            'ptmiemcd',       # Hospital code (may need generalization)
         ]
         
         # Quasi-identifiers that need generalization
         self.quasi_identifiers = [
             'pat_age',        # Age
-            'pat_sex',        # Gender
-            'pat_sarea',      # Area code
-            'vst_dt',         # Visit date
-            'vst_tm',         # Visit time
+            'ptmisexx',        # Gender
+            'ptmizipc',      # Area code
+            'ptmiindt',         # Visit date
+            'ptmiintm',         # Visit time
         ]
     
     def generate_unique_id(self, prefix: str = "SYN") -> str:
@@ -128,7 +128,7 @@ class IdentifierManager:
             df = df.drop(columns=columns_to_remove)
         
         # Convert birth date to age if present
-        if 'pat_brdt' in df.columns and 'pat_brdt' not in preserve_columns:
+        if 'ptmibrtd' in df.columns and 'ptmibrtd' not in preserve_columns:
             logger.info("Converting birth date to age")
             df = self._convert_birthdate_to_age(df)
         
@@ -140,13 +140,13 @@ class IdentifierManager:
         Convert birth date to age
         
         Args:
-            df: Dataframe with pat_brdt column
+            df: Dataframe with ptmibrtd column
             reference_date: Reference date for age calculation
             
         Returns:
             Dataframe with age instead of birth date
         """
-        if 'pat_brdt' not in df.columns:
+        if 'ptmibrtd' not in df.columns:
             return df
         
         reference_date = reference_date or datetime(2017, 12, 31)
@@ -172,7 +172,7 @@ class IdentifierManager:
             return None
         
         # Calculate ages
-        birth_dates = df['pat_brdt'].apply(parse_birthdate)
+        birth_dates = df['ptmibrtd'].apply(parse_birthdate)
         ages = birth_dates.apply(
             lambda bd: (reference_date - bd).days // 365 if bd else None
         )
@@ -182,7 +182,7 @@ class IdentifierManager:
             df['pat_age'] = ages
         
         # Remove birth date column
-        df = df.drop(columns=['pat_brdt'])
+        df = df.drop(columns=['ptmibrtd'])
         
         return df
     
@@ -238,7 +238,7 @@ class IdentifierManager:
         results['has_synthetic_id'] = any('synthetic' in col.lower() for col in df.columns)
         
         # Check age conversion
-        results['has_age_not_birthdate'] = 'pat_age' in df.columns and 'pat_brdt' not in df.columns
+        results['has_age_not_birthdate'] = 'pat_age' in df.columns and 'ptmibrtd' not in df.columns
         
         # Overall validation
         results['valid'] = all([

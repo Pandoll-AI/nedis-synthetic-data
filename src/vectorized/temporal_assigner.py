@@ -83,7 +83,7 @@ class TemporalPatternAssigner:
             result_df = self._assign_times_vectorized(result_df, temporal_config)
         else:
             # 기본 시간 할당 (균등 분포)
-            result_df['vst_tm'] = self._generate_random_times(len(result_df))
+            result_df['ptmiintm'] = self._generate_random_times(len(result_df))
         
         self.logger.info(f"Temporal pattern assignment completed")
         return result_df
@@ -133,12 +133,12 @@ class TemporalPatternAssigner:
         
         # 기본 통계 계산 (원본 데이터에서)
         # 원본 통계 테이블 선택
-        src_table = self.pattern_analyzer.src_table if hasattr(self.pattern_analyzer, 'src_table') else 'nedis_original.nedis2017'
+        src_table = self.pattern_analyzer.src_table if hasattr(self.pattern_analyzer, 'src_table') else 'nedis_original.emihptmi'
         original_stats = self.db.fetch_dataframe(f"""
             SELECT COUNT(*) as total_count,
-                   COUNT(DISTINCT vst_dt) as unique_dates
+                   COUNT(DISTINCT ptmiindt) as unique_dates
             FROM {src_table}
-            WHERE vst_dt IS NOT NULL
+            WHERE ptmiindt IS NOT NULL
         """)
         
         mean_daily_count = original_stats['total_count'].iloc[0] / original_stats['unique_dates'].iloc[0]
@@ -236,10 +236,10 @@ class TemporalPatternAssigner:
         
         # 데이터프레임에 날짜 할당
         result_df = patients_df.copy()
-        result_df['vst_dt'] = [dates_list[idx] for idx in date_indices]
+        result_df['ptmiindt'] = [dates_list[idx] for idx in date_indices]
         
         # 할당 결과 로깅
-        assigned_counts = result_df['vst_dt'].value_counts().sort_index()
+        assigned_counts = result_df['ptmiindt'].value_counts().sort_index()
         self.logger.info(f"Date assignment completed: {len(assigned_counts)} unique dates")
         
         return result_df
@@ -275,7 +275,7 @@ class TemporalPatternAssigner:
             # 날짜별로 그룹화하여 처리
             time_assignments = np.empty(len(result_df), dtype='object')
             
-            for _, group_indices in result_df.groupby('vst_dt').groups.items():
+            for _, group_indices in result_df.groupby('ptmiindt').groups.items():
                 hours = list(hourly_pattern.keys())
                 probabilities = [hourly_pattern[h]['probability'] for h in hours]
                 
@@ -297,10 +297,10 @@ class TemporalPatternAssigner:
                 time_strings = [f"{h:02d}{m:02d}" for h, m in zip(chosen_hours, chosen_minutes)]
                 time_assignments[list(group_indices)] = time_strings
             
-            result_df['vst_tm'] = time_assignments
+            result_df['ptmiintm'] = time_assignments
         else:
             # 기본 시간 분포 사용
-            result_df['vst_tm'] = self._generate_random_times(len(result_df))
+            result_df['ptmiintm'] = self._generate_random_times(len(result_df))
         
         return result_df
 
@@ -315,25 +315,27 @@ class TemporalPatternAssigner:
         if len(result_df) == 0:
             return result_df
 
-        date_obj = pd.to_datetime(result_df['vst_dt'].astype(str), format='%Y%m%d', errors='coerce')
+        date_obj = pd.to_datetime(result_df['ptmiindt'].astype(str), format='%Y%m%d', errors='coerce')
         result_df = result_df.copy()
         result_df['_month'] = date_obj.dt.month.fillna(0).astype(int)
-        result_df['_dow'] = date_obj.dt.dayofweek.fillna(0).astype(int)
-        result_df['_age'] = result_df.get('pat_age_gr', pd.Series(['unknown'] * len(result_df), index=result_df.index)).fillna('unknown').astype(str)
-        result_df['_sex'] = result_df.get('pat_sex', pd.Series(['unknown'] * len(result_df), index=result_df.index)).fillna('unknown').astype(str)
+        # Convert pandas dayofweek (0=Mon,6=Sun) to DuckDB/PostgreSQL DOW (0=Sun,6=Sat)
+        # to match the DOW convention used in conditional_patterns from SQL EXTRACT(DOW)
+        result_df['_dow'] = ((date_obj.dt.dayofweek.fillna(0).astype(int) + 1) % 7)
+        result_df['_age'] = result_df.get('ptmibrtd', pd.Series(['unknown'] * len(result_df), index=result_df.index)).fillna('unknown').astype(str)
+        result_df['_sex'] = result_df.get('ptmisexx', pd.Series(['unknown'] * len(result_df), index=result_df.index)).fillna('unknown').astype(str)
         result_df['_ktas'] = result_df.get(
-            'ktas_fstu',
-            result_df.get('ktas01', pd.Series(['3'] * len(result_df), index=result_df.index)),
+            'ptmikts1',
+            result_df.get('ptmikpr1', pd.Series(['3'] * len(result_df), index=result_df.index)),
         ).fillna('unknown').astype(str)
 
         global_probs = self._hour_distribution_to_prob_vector(hourly_pattern)
         if global_probs is None:
             global_probs = np.ones(24, dtype=float) / 24.0
             if not conditional_patterns:
-                result_df['vst_tm'] = self._generate_random_times(len(result_df))
+                result_df['ptmiintm'] = self._generate_random_times(len(result_df))
                 return result_df.drop(columns=['_month', '_dow', '_age', '_sex', '_ktas'])
 
-        result_df['vst_tm'] = ''
+        result_df['ptmiintm'] = ''
         result_df['_hour_profile_source'] = ''
 
         for _, group_indices in result_df.groupby(['_month', '_dow', '_age', '_sex', '_ktas']).groups.items():
@@ -355,11 +357,11 @@ class TemporalPatternAssigner:
             result_df.loc[result_df.index[idx], '_hour_profile_source'] = source
             chosen_hours = np.random.choice(np.arange(24), size=len(idx), p=distribution)
             chosen_minutes = np.random.randint(0, 60, size=len(idx))
-            result_df.loc[result_df.index[idx], 'vst_tm'] = [
+            result_df.loc[result_df.index[idx], 'ptmiintm'] = [
                 f"{int(h):02d}{int(m):02d}" for h, m in zip(chosen_hours, chosen_minutes)
             ]
 
-        return result_df.drop(columns=['_month', '_dow', '_age', '_sex', '_ktas'])
+        return result_df.drop(columns=['_month', '_dow', '_age', '_sex', '_ktas', '_hour_profile_source'])
 
     def _resolve_hour_distribution(
         self,
@@ -510,8 +512,8 @@ class TemporalPatternAssigner:
         validation_results = {}
         
         # 날짜 범위 검증
-        min_date = result_df['vst_dt'].min()
-        max_date = result_df['vst_dt'].max()
+        min_date = result_df['ptmiindt'].min()
+        max_date = result_df['ptmiindt'].max()
         expected_start = f"{temporal_config.year}0101"
         expected_end = f"{temporal_config.year}1231"
         
@@ -524,7 +526,7 @@ class TemporalPatternAssigner:
         }
         
         # 요일별 분포 검증
-        result_df['date_obj'] = pd.to_datetime(result_df['vst_dt'], format='%Y%m%d')
+        result_df['date_obj'] = pd.to_datetime(result_df['ptmiindt'], format='%Y%m%d')
         result_df['day_of_week'] = result_df['date_obj'].dt.dayofweek
         
         dow_distribution = result_df['day_of_week'].value_counts(normalize=True).sort_index()
@@ -536,8 +538,8 @@ class TemporalPatternAssigner:
         validation_results['monthly_distribution'] = monthly_distribution.to_dict()
         
         # 시간 분포 검증 (시간이 할당된 경우)
-        if 'vst_tm' in result_df.columns:
-            result_df['hour'] = result_df['vst_tm'].str[:2].astype(int)
+        if 'ptmiintm' in result_df.columns:
+            result_df['hour'] = result_df['ptmiintm'].str[:2].astype(int)
             hourly_distribution = result_df['hour'].value_counts(normalize=True).sort_index()
             validation_results['hourly_distribution'] = hourly_distribution.to_dict()
             if '_hour_profile_source' in result_df.columns:
@@ -547,7 +549,7 @@ class TemporalPatternAssigner:
                 result_df = result_df.drop(columns=['_hour_profile_source'])
         
         # 총 일수와 평균 일별 방문자 수
-        unique_dates = result_df['vst_dt'].nunique()
+        unique_dates = result_df['ptmiindt'].nunique()
         avg_daily_visits = len(result_df) / unique_dates
         
         validation_results['summary'] = {

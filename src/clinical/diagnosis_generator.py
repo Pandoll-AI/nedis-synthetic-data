@@ -129,11 +129,11 @@ class DiagnosisGenerator:
         try:
             # 해당 날짜 임상 레코드 조회
             clinical_records = self.db.fetch_dataframe("""
-                SELECT 
-                    index_key, emorg_cd, pat_age_gr, pat_sex, 
-                    ktas_fstu, emtrt_rust, main_trt_p
+                SELECT
+                    index_key, ptmiemcd, ptmibrtd, ptmisexx,
+                    ptmikts1, ptmiemrt, ptmidept
                 FROM nedis_synthetic.clinical_records
-                WHERE vst_dt = ?
+                WHERE ptmiindt = ?
                 ORDER BY index_key
             """, [date_str])
             
@@ -145,16 +145,16 @@ class DiagnosisGenerator:
             self.db.execute_query("""
                 DELETE FROM nedis_synthetic.diag_er 
                 WHERE index_key IN (
-                    SELECT index_key FROM nedis_synthetic.clinical_records 
-                    WHERE vst_dt = ?
+                    SELECT index_key FROM nedis_synthetic.clinical_records
+                    WHERE ptmiindt = ?
                 )
             """, [date_str])
-            
+
             self.db.execute_query("""
-                DELETE FROM nedis_synthetic.diag_adm 
+                DELETE FROM nedis_synthetic.diag_adm
                 WHERE index_key IN (
-                    SELECT index_key FROM nedis_synthetic.clinical_records 
-                    WHERE vst_dt = ?
+                    SELECT index_key FROM nedis_synthetic.clinical_records
+                    WHERE ptmiindt = ?
                 )
             """, [date_str])
             
@@ -170,7 +170,7 @@ class DiagnosisGenerator:
                 er_diagnoses.extend(patient_er_diagnoses)
                 
                 # 입원 환자의 경우 입원 진단도 생성
-                if patient['emtrt_rust'] in ['31', '32']:  # 병실입원, 중환자실입원
+                if patient['ptmiemrt'] in ['31', '32']:  # 병실입원, 중환자실입원
                     patient_admission_diagnoses = self._generate_admission_diagnoses(
                         patient, patient_er_diagnoses
                     )
@@ -189,7 +189,7 @@ class DiagnosisGenerator:
                 'er_diagnoses_generated': len(er_diagnoses),
                 'admission_diagnoses_generated': len(admission_diagnoses),
                 'admission_patients': sum(1 for p in clinical_records.itertuples() 
-                                        if p.emtrt_rust in ['31', '32']),
+                                        if p.ptmiemrt in ['31', '32']),
                 'diagnosis_summary': self._get_diagnosis_summary(er_diagnoses, admission_diagnoses)
             }
             
@@ -216,10 +216,10 @@ class DiagnosisGenerator:
         """
         
         index_key = patient['index_key']
-        pat_age_gr = patient['pat_age_gr']
-        pat_sex = patient['pat_sex']
-        ktas_level = patient['ktas_fstu']
-        emorg_cd = patient['emorg_cd']
+        ptmibrtd = patient['ptmibrtd']
+        ptmisexx = patient['ptmisexx']
+        ktas_level = patient['ptmikts1']
+        ptmiemcd = patient['ptmiemcd']
         
         diagnoses = []
         
@@ -230,7 +230,7 @@ class DiagnosisGenerator:
             
             # 2. 주진단 (position=1) 생성
             primary_diagnosis = self._generate_primary_diagnosis(
-                pat_age_gr, pat_sex, ktas_level, emorg_cd
+                ptmibrtd, ptmisexx, ktas_level, ptmiemcd
             )
             
             if primary_diagnosis:
@@ -246,7 +246,7 @@ class DiagnosisGenerator:
             # 3. 부진단 생성 (position > 1)
             if diagnosis_count > 1 and primary_diagnosis:
                 secondary_diagnoses = self._generate_secondary_diagnoses(
-                    primary_diagnosis, diagnosis_count - 1, pat_age_gr, pat_sex
+                    primary_diagnosis, diagnosis_count - 1, ptmibrtd, ptmisexx
                 )
                 
                 for i, sec_diag in enumerate(secondary_diagnoses, start=2):
@@ -265,16 +265,16 @@ class DiagnosisGenerator:
             self.logger.warning(f"ER diagnosis generation failed for patient {index_key}: {e}")
             return []
     
-    def _generate_primary_diagnosis(self, pat_age_gr: str, pat_sex: str, 
-                                  ktas_level: str, emorg_cd: str) -> Optional[Dict[str, str]]:
+    def _generate_primary_diagnosis(self, ptmibrtd: str, ptmisexx: str, 
+                                  ktas_level: str, ptmiemcd: str) -> Optional[Dict[str, str]]:
         """
         조건부 확률 기반 주진단 생성
         
         Args:
-            pat_age_gr: 연령군
-            pat_sex: 성별
+            ptmibrtd: 연령군
+            ptmisexx: 성별
             ktas_level: KTAS 등급
-            emorg_cd: 병원 코드
+            ptmiemcd: 병원 코드
             
         Returns:
             주진단 정보 딕셔너리 or None
@@ -283,9 +283,9 @@ class DiagnosisGenerator:
         try:
             # 병원 종별 조회
             hospital_info = self.db.fetch_dataframe("""
-                SELECT gubun FROM nedis_meta.hospital_capacity 
-                WHERE emorg_cd = ?
-            """, [emorg_cd])
+                SELECT gubun FROM nedis_meta.hospital_capacity
+                WHERE ptmiemcd = ?
+            """, [ptmiemcd])
             
             gubun = hospital_info.iloc[0]['gubun'] if len(hospital_info) > 0 else '지역기관'
             
@@ -293,22 +293,22 @@ class DiagnosisGenerator:
             primary_diagnosis_probs = self.db.fetch_dataframe("""
                 SELECT diagnosis_code, probability
                 FROM nedis_meta.diagnosis_conditional_prob
-                WHERE pat_age_gr = ? AND pat_sex = ? AND gubun = ? 
-                      AND ktas_fstu = ? AND is_primary = true
+                WHERE ptmibrtd = ? AND ptmisexx = ? AND gubun = ?
+                      AND ptmikts1 = ? AND is_primary = true
                 ORDER BY probability DESC
                 LIMIT 50
-            """, [pat_age_gr, pat_sex, gubun, ktas_level])
-            
+            """, [ptmibrtd, ptmisexx, gubun, ktas_level])
+
             if len(primary_diagnosis_probs) == 0:
                 # 조건을 완화하여 재시도
                 primary_diagnosis_probs = self.db.fetch_dataframe("""
                     SELECT diagnosis_code, AVG(probability) as probability
                     FROM nedis_meta.diagnosis_conditional_prob
-                    WHERE pat_age_gr = ? AND pat_sex = ? AND is_primary = true
+                    WHERE ptmibrtd = ? AND ptmisexx = ? AND is_primary = true
                     GROUP BY diagnosis_code
                     ORDER BY probability DESC
                     LIMIT 30
-                """, [pat_age_gr, pat_sex])
+                """, [ptmibrtd, ptmisexx])
             
             if len(primary_diagnosis_probs) == 0:
                 return None
@@ -332,15 +332,15 @@ class DiagnosisGenerator:
             return None
     
     def _generate_secondary_diagnoses(self, primary_diagnosis: Dict[str, str], 
-                                    count: int, pat_age_gr: str, pat_sex: str) -> List[Dict[str, str]]:
+                                    count: int, ptmibrtd: str, ptmisexx: str) -> List[Dict[str, str]]:
         """
         주진단과 연관된 부진단들 생성
         
         Args:
             primary_diagnosis: 주진단 정보
             count: 생성할 부진단 개수
-            pat_age_gr: 연령군
-            pat_sex: 성별
+            ptmibrtd: 연령군
+            ptmisexx: 성별
             
         Returns:
             부진단 정보 리스트
@@ -369,7 +369,7 @@ class DiagnosisGenerator:
                 
                 # 해당 챕터에서 진단 선택
                 secondary_diagnosis = self._select_diagnosis_from_chapter(
-                    selected_chapter, pat_age_gr, pat_sex, used_codes
+                    selected_chapter, ptmibrtd, ptmisexx, used_codes
                 )
                 
                 if secondary_diagnosis:
@@ -382,15 +382,15 @@ class DiagnosisGenerator:
             self.logger.warning(f"Secondary diagnosis generation failed: {e}")
             return []
     
-    def _select_diagnosis_from_chapter(self, chapter: str, pat_age_gr: str, 
-                                     pat_sex: str, used_codes: Set[str]) -> Optional[Dict[str, str]]:
+    def _select_diagnosis_from_chapter(self, chapter: str, ptmibrtd: str, 
+                                     ptmisexx: str, used_codes: Set[str]) -> Optional[Dict[str, str]]:
         """
         특정 ICD 챕터에서 진단 선택
         
         Args:
             chapter: ICD 챕터 코드
-            pat_age_gr: 연령군
-            pat_sex: 성별
+            ptmibrtd: 연령군
+            ptmisexx: 성별
             used_codes: 이미 사용된 진단 코드들
             
         Returns:
@@ -402,12 +402,12 @@ class DiagnosisGenerator:
             chapter_diagnoses = self.db.fetch_dataframe("""
                 SELECT diagnosis_code, AVG(probability) as probability
                 FROM nedis_meta.diagnosis_conditional_prob
-                WHERE pat_age_gr = ? AND pat_sex = ? 
+                WHERE ptmibrtd = ? AND ptmisexx = ?
                       AND diagnosis_code LIKE ?
                 GROUP BY diagnosis_code
                 ORDER BY probability DESC
                 LIMIT 20
-            """, [pat_age_gr, pat_sex, f"{chapter}%"])
+            """, [ptmibrtd, ptmisexx, f"{chapter}%"])
             
             if len(chapter_diagnoses) == 0:
                 # 연령/성별 조건 없이 재시도
@@ -489,7 +489,7 @@ class DiagnosisGenerator:
                     })
                 else:  # 30% 확률로 연관 진단
                     related_diag = self._generate_related_admission_diagnosis(
-                        er_diag['diagnosis_code'], patient['pat_age_gr'], patient['pat_sex']
+                        er_diag['diagnosis_code'], patient['ptmibrtd'], patient['ptmisexx']
                     )
                     
                     if related_diag:
@@ -520,7 +520,7 @@ class DiagnosisGenerator:
             
             for i in range(additional_count):
                 additional_diag = self._generate_additional_admission_diagnosis(
-                    patient['pat_age_gr'], patient['pat_sex'], used_codes
+                    patient['ptmibrtd'], patient['ptmisexx'], used_codes
                 )
                 
                 if additional_diag:
@@ -540,8 +540,8 @@ class DiagnosisGenerator:
             self.logger.warning(f"Admission diagnosis generation failed for {index_key}: {e}")
             return []
     
-    def _generate_related_admission_diagnosis(self, er_code: str, pat_age_gr: str, 
-                                            pat_sex: str) -> Optional[Dict[str, str]]:
+    def _generate_related_admission_diagnosis(self, er_code: str, ptmibrtd: str, 
+                                            ptmisexx: str) -> Optional[Dict[str, str]]:
         """ER 진단과 연관된 입원 진단 생성"""
         
         er_chapter = self._get_icd_chapter(er_code)
@@ -551,10 +551,10 @@ class DiagnosisGenerator:
         selected_chapter = np.random.choice(associated_chapters + [er_chapter])
         
         return self._select_diagnosis_from_chapter(
-            selected_chapter, pat_age_gr, pat_sex, {er_code}
+            selected_chapter, ptmibrtd, ptmisexx, {er_code}
         )
     
-    def _generate_additional_admission_diagnosis(self, pat_age_gr: str, pat_sex: str, 
+    def _generate_additional_admission_diagnosis(self, ptmibrtd: str, ptmisexx: str, 
                                                used_codes: Set[str]) -> Optional[Dict[str, str]]:
         """입원 추가 진단 생성"""
         
@@ -563,7 +563,7 @@ class DiagnosisGenerator:
         selected_chapter = np.random.choice(admission_chapters)
         
         return self._select_diagnosis_from_chapter(
-            selected_chapter, pat_age_gr, pat_sex, used_codes
+            selected_chapter, ptmibrtd, ptmisexx, used_codes
         )
     
     def _batch_insert_er_diagnoses(self, diagnoses: List[Dict[str, Any]]):

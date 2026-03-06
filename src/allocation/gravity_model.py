@@ -111,16 +111,16 @@ class HospitalGravityAllocator:
             self.db.execute_query("""
                 CREATE TABLE nedis_meta.distance_matrix (
                     from_do_cd VARCHAR,
-                    to_emorg_cd VARCHAR,
+                    to_ptmiemcd VARCHAR,
                     distance_km DOUBLE,
                     travel_time_min DOUBLE,
-                    PRIMARY KEY (from_do_cd, to_emorg_cd)
+                    PRIMARY KEY (from_do_cd, to_ptmiemcd)
                 )
             """)
             
             # 병원 정보 로드
             hospitals = self.db.fetch_dataframe("""
-                SELECT emorg_cd, adr, hospname 
+                SELECT ptmiemcd, adr, hospname
                 FROM nedis_meta.hospital_capacity
             """)
             
@@ -129,7 +129,7 @@ class HospitalGravityAllocator:
             
             for region_code, region_coord in self.region_coordinates.items():
                 for _, hospital in hospitals.iterrows():
-                    hospital_code = hospital['emorg_cd']
+                    hospital_code = hospital['ptmiemcd']
                     hospital_region = hospital['adr']
                     
                     # 병원 지역 코드 매핑 (간단한 휴리스틱)
@@ -143,7 +143,7 @@ class HospitalGravityAllocator:
                     
                     distance_records.append({
                         'from_do_cd': region_code,
-                        'to_emorg_cd': hospital_code,
+                        'to_ptmiemcd': hospital_code,
                         'distance_km': distance,
                         'travel_time_min': travel_time
                     })
@@ -154,9 +154,9 @@ class HospitalGravityAllocator:
             for _, row in distance_df.iterrows():
                 self.db.execute_query("""
                     INSERT INTO nedis_meta.distance_matrix
-                    (from_do_cd, to_emorg_cd, distance_km, travel_time_min)
+                    (from_do_cd, to_ptmiemcd, distance_km, travel_time_min)
                     VALUES (?, ?, ?, ?)
-                """, (row['from_do_cd'], row['to_emorg_cd'], 
+                """, (row['from_do_cd'], row['to_ptmiemcd'],
                       row['distance_km'], row['travel_time_min']))
             
             self.logger.info(f"Distance matrix created with {len(distance_records)} entries")
@@ -219,13 +219,13 @@ class HospitalGravityAllocator:
             
             # 결과 확인
             results = self.db.fetch_dataframe("""
-                SELECT emorg_cd, gubun, daily_capacity_mean, attractiveness_score
+                SELECT ptmiemcd, gubun, daily_capacity_mean, attractiveness_score
                 FROM nedis_meta.hospital_capacity
                 ORDER BY attractiveness_score DESC
             """)
-            
+
             self.logger.info(f"Attractiveness scores calculated for {len(results)} hospitals")
-            self.logger.info(f"Top hospital: {results.iloc[0]['emorg_cd']} (score: {results.iloc[0]['attractiveness_score']:.2f})")
+            self.logger.info(f"Top hospital: {results.iloc[0]['ptmiemcd']} (score: {results.iloc[0]['attractiveness_score']:.2f})")
             
         except Exception as e:
             self.logger.error(f"Failed to calculate attractiveness: {e}")
@@ -241,20 +241,20 @@ class HospitalGravityAllocator:
             self.db.execute_query("DROP TABLE IF EXISTS nedis_meta.hospital_choice_prob")
             self.db.execute_query("""
                 CREATE TABLE nedis_meta.hospital_choice_prob (
-                    pat_do_cd VARCHAR,
-                    pat_age_gr VARCHAR,
-                    pat_sex VARCHAR,
-                    emorg_cd VARCHAR,
+                    ptmizipc VARCHAR,
+                    ptmibrtd VARCHAR,
+                    ptmisexx VARCHAR,
+                    ptmiemcd VARCHAR,
                     probability DOUBLE,
                     utility_score DOUBLE,
                     rank INTEGER,
-                    PRIMARY KEY (pat_do_cd, pat_age_gr, pat_sex, emorg_cd)
+                    PRIMARY KEY (ptmizipc, ptmibrtd, ptmisexx, ptmiemcd)
                 )
             """)
             
             # 모든 인구 그룹 조회
             population_groups = self.db.fetch_dataframe("""
-                SELECT DISTINCT pat_do_cd, pat_age_gr, pat_sex
+                SELECT DISTINCT ptmizipc, ptmibrtd, ptmisexx
                 FROM nedis_meta.population_margins
                 WHERE yearly_visits > 0
             """)
@@ -264,21 +264,21 @@ class HospitalGravityAllocator:
             probability_records = []
             
             for idx, group in population_groups.iterrows():
-                region = group['pat_do_cd']
-                age = group['pat_age_gr']
-                sex = group['pat_sex']
-                
+                region = group['ptmizipc']
+                age = group['ptmibrtd']
+                sex = group['ptmisexx']
+
                 # 해당 지역에서 모든 병원까지의 거리와 매력도 조회
                 hospitals_data = self.db.fetch_dataframe("""
-                    SELECT 
-                        h.emorg_cd,
+                    SELECT
+                        h.ptmiemcd,
                         h.attractiveness_score,
                         h.gubun,
                         h.daily_capacity_mean,
                         d.distance_km,
                         d.travel_time_min
                     FROM nedis_meta.hospital_capacity h
-                    JOIN nedis_meta.distance_matrix d ON h.emorg_cd = d.to_emorg_cd
+                    JOIN nedis_meta.distance_matrix d ON h.ptmiemcd = d.to_ptmiemcd
                     WHERE d.from_do_cd = ?
                 """, [region])
                 
@@ -310,12 +310,12 @@ class HospitalGravityAllocator:
                 if total_utility > 0:
                     for i, (_, hospital) in enumerate(hospitals_data.iterrows()):
                         probability = utilities[i] / total_utility
-                        
+
                         probability_records.append({
-                            'pat_do_cd': region,
-                            'pat_age_gr': age,
-                            'pat_sex': sex,
-                            'emorg_cd': hospital['emorg_cd'],
+                            'ptmizipc': region,
+                            'ptmibrtd': age,
+                            'ptmisexx': sex,
+                            'ptmiemcd': hospital['ptmiemcd'],
                             'probability': probability,
                             'utility_score': utilities[i]
                         })
@@ -324,15 +324,15 @@ class HospitalGravityAllocator:
             prob_df = pd.DataFrame(probability_records)
             
             # 각 그룹별 확률 순위 계산
-            prob_df['rank'] = prob_df.groupby(['pat_do_cd', 'pat_age_gr', 'pat_sex'])['probability'].rank(method='dense', ascending=False)
-            
+            prob_df['rank'] = prob_df.groupby(['ptmizipc', 'ptmibrtd', 'ptmisexx'])['probability'].rank(method='dense', ascending=False)
+
             # 배치 삽입
             for _, row in prob_df.iterrows():
                 self.db.execute_query("""
                     INSERT INTO nedis_meta.hospital_choice_prob
-                    (pat_do_cd, pat_age_gr, pat_sex, emorg_cd, probability, utility_score, rank)
+                    (ptmizipc, ptmibrtd, ptmisexx, ptmiemcd, probability, utility_score, rank)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (row['pat_do_cd'], row['pat_age_gr'], row['pat_sex'], row['emorg_cd'],
+                """, (row['ptmizipc'], row['ptmibrtd'], row['ptmisexx'], row['ptmiemcd'],
                       row['probability'], row['utility_score'], int(row['rank'])))
             
             self.logger.info(f"Hospital choice probabilities calculated: {len(probability_records)} records")
@@ -375,22 +375,22 @@ class HospitalGravityAllocator:
         
         try:
             summary = self.db.fetch_dataframe("""
-                SELECT 
-                    emorg_cd,
+                SELECT
+                    ptmiemcd,
                     COUNT(*) as group_count,
                     AVG(probability) as avg_probability,
                     MIN(probability) as min_probability,
                     MAX(probability) as max_probability,
                     SUM(CASE WHEN rank = 1 THEN 1 ELSE 0 END) as first_choice_count
                 FROM nedis_meta.hospital_choice_prob
-                GROUP BY emorg_cd
+                GROUP BY ptmiemcd
                 ORDER BY avg_probability DESC
             """)
-            
+
             self.logger.info("Hospital choice probability summary:")
             for _, row in summary.head(5).iterrows():
                 self.logger.info(
-                    f"  {row['emorg_cd']}: avg={row['avg_probability']:.4f}, "
+                    f"  {row['ptmiemcd']}: avg={row['avg_probability']:.4f}, "
                     f"first_choice={row['first_choice_count']} groups"
                 )
             
@@ -409,15 +409,15 @@ class HospitalGravityAllocator:
             # 병원 할당 테이블 생성
             self.db.execute_query("""
                 CREATE TABLE nedis_synthetic.hospital_allocations (
-                    vst_dt VARCHAR,
-                    emorg_cd VARCHAR,
-                    pat_do_cd VARCHAR,
-                    pat_age_gr VARCHAR,
-                    pat_sex VARCHAR,
+                    ptmiindt VARCHAR,
+                    ptmiemcd VARCHAR,
+                    ptmizipc VARCHAR,
+                    ptmibrtd VARCHAR,
+                    ptmisexx VARCHAR,
                     allocated_count INTEGER,
                     overflow_received INTEGER DEFAULT 0,
                     allocation_method VARCHAR DEFAULT 'gravity',
-                    PRIMARY KEY (vst_dt, emorg_cd, pat_do_cd, pat_age_gr, pat_sex)
+                    PRIMARY KEY (ptmiindt, ptmiemcd, ptmizipc, ptmibrtd, ptmisexx)
                 )
             """)
             
@@ -440,10 +440,10 @@ class HospitalGravityAllocator:
         try:
             # 해당 날짜의 일별 볼륨 로드
             daily_volumes = self.db.fetch_dataframe("""
-                SELECT pat_do_cd, pat_age_gr, pat_sex, synthetic_daily_count
+                SELECT ptmizipc, ptmibrtd, ptmisexx, synthetic_daily_count
                 FROM nedis_synthetic.daily_volumes
-                WHERE vst_dt = ?
-                ORDER BY pat_do_cd, pat_age_gr, pat_sex
+                WHERE ptmiindt = ?
+                ORDER BY ptmizipc, ptmibrtd, ptmisexx
             """, [date_str])
             
             if len(daily_volumes) == 0:
@@ -453,7 +453,7 @@ class HospitalGravityAllocator:
             # 해당 날짜의 기존 데이터 삭제 (재실행 시 중복 방지)
             self.db.execute_query("""
                 DELETE FROM nedis_synthetic.hospital_allocations 
-                WHERE vst_dt = ?
+                WHERE ptmiindt = ?
             """, [date_str])
             
             allocation_records = []
@@ -461,9 +461,9 @@ class HospitalGravityAllocator:
             
             # 각 인구 그룹별 병원 할당
             for _, volume_row in daily_volumes.iterrows():
-                region = volume_row['pat_do_cd']
-                age = volume_row['pat_age_gr']
-                sex = volume_row['pat_sex']
+                region = volume_row['ptmizipc']
+                age = volume_row['ptmibrtd']
+                sex = volume_row['ptmisexx']
                 total_count = int(volume_row['synthetic_daily_count'])
                 
                 if total_count <= 0:
@@ -471,9 +471,9 @@ class HospitalGravityAllocator:
                 
                 # 해당 그룹의 병원 선택 확률 로드
                 choice_probs = self.db.fetch_dataframe("""
-                    SELECT emorg_cd, probability
+                    SELECT ptmiemcd, probability
                     FROM nedis_meta.hospital_choice_prob
-                    WHERE pat_do_cd = ? AND pat_age_gr = ? AND pat_sex = ?
+                    WHERE ptmizipc = ? AND ptmibrtd = ? AND ptmisexx = ?
                     ORDER BY probability DESC
                 """, [region, age, sex])
                 
@@ -482,7 +482,7 @@ class HospitalGravityAllocator:
                     continue
                 
                 # Multinomial 샘플링으로 병원별 초기 할당
-                hospitals = choice_probs['emorg_cd'].values
+                hospitals = choice_probs['ptmiemcd'].values
                 probabilities = choice_probs['probability'].values
                 
                 # 확률 정규화 (부동소수점 오차 방지)
@@ -495,11 +495,11 @@ class HospitalGravityAllocator:
                     for hospital, count in zip(hospitals, allocation_counts):
                         if count > 0:
                             allocation_records.append({
-                                'vst_dt': date_str,
-                                'emorg_cd': hospital,
-                                'pat_do_cd': region,
-                                'pat_age_gr': age,
-                                'pat_sex': sex,
+                                'ptmiindt': date_str,
+                                'ptmiemcd': hospital,
+                                'ptmizipc': region,
+                                'ptmibrtd': age,
+                                'ptmisexx': sex,
                                 'allocated_count': count,
                                 'overflow_received': 0,
                                 'allocation_method': 'gravity'
@@ -518,11 +518,11 @@ class HospitalGravityAllocator:
             for record in allocation_records:
                 self.db.execute_query("""
                     INSERT INTO nedis_synthetic.hospital_allocations
-                    (vst_dt, emorg_cd, pat_do_cd, pat_age_gr, pat_sex, 
+                    (ptmiindt, ptmiemcd, ptmizipc, ptmibrtd, ptmisexx, 
                      allocated_count, overflow_received, allocation_method)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (record['vst_dt'], record['emorg_cd'], record['pat_do_cd'],
-                      record['pat_age_gr'], record['pat_sex'], int(record['allocated_count']),
+                """, (record['ptmiindt'], record['ptmiemcd'], record['ptmizipc'],
+                      record['ptmibrtd'], record['ptmisexx'], int(record['allocated_count']),
                       int(record['overflow_received']), record['allocation_method']))
             
             self.logger.info(f"Hospital allocation completed: {len(allocation_records)} allocation records")
@@ -552,7 +552,7 @@ class HospitalGravityAllocator:
         try:
             # 병원별 용량 정보 로드
             hospital_capacities = self.db.fetch_dataframe("""
-                SELECT emorg_cd, 
+                SELECT ptmiemcd, 
                        daily_capacity_mean + 2 * daily_capacity_std as max_capacity,
                        gubun,
                        adr
@@ -563,8 +563,8 @@ class HospitalGravityAllocator:
             hospital_info = {}
             
             for _, row in hospital_capacities.iterrows():
-                capacity_dict[row['emorg_cd']] = int(row['max_capacity'])
-                hospital_info[row['emorg_cd']] = {
+                capacity_dict[row['ptmiemcd']] = int(row['max_capacity'])
+                hospital_info[row['ptmiemcd']] = {
                     'gubun': row['gubun'],
                     'adr': row['adr']
                 }
@@ -574,7 +574,7 @@ class HospitalGravityAllocator:
             allocation_by_hospital = {}
             
             for record in allocation_records:
-                hospital = record['emorg_cd']
+                hospital = record['ptmiemcd']
                 count = record['allocated_count']
                 
                 if hospital not in hospital_loads:
@@ -613,9 +613,9 @@ class HospitalGravityAllocator:
                         
                         if overflow_count > 0:
                             overflow_by_group.append({
-                                'pat_do_cd': record['pat_do_cd'],
-                                'pat_age_gr': record['pat_age_gr'],
-                                'pat_sex': record['pat_sex'],
+                                'ptmizipc': record['ptmizipc'],
+                                'ptmibrtd': record['ptmibrtd'],
+                                'ptmisexx': record['ptmisexx'],
                                 'overflow_count': overflow_count,
                                 'original_hospital': hospital
                             })
@@ -653,19 +653,19 @@ class HospitalGravityAllocator:
         """
         
         for overflow in overflow_records:
-            region = overflow['pat_do_cd']
-            age = overflow['pat_age_gr']
-            sex = overflow['pat_sex']
+            region = overflow['ptmizipc']
+            age = overflow['ptmibrtd']
+            sex = overflow['ptmisexx']
             overflow_count = overflow['overflow_count']
             original_hospital = overflow['original_hospital']
             
             # 대안 병원 찾기 (동일 지역 내, 용량 여유 있는 병원)
             alternative_hospitals = self.db.fetch_dataframe("""
-                SELECT hcp.emorg_cd, hcp.probability
+                SELECT hcp.ptmiemcd, hcp.probability
                 FROM nedis_meta.hospital_choice_prob hcp
-                JOIN nedis_meta.hospital_capacity hc ON hcp.emorg_cd = hc.emorg_cd
-                WHERE hcp.pat_do_cd = ? AND hcp.pat_age_gr = ? AND hcp.pat_sex = ?
-                      AND hcp.emorg_cd != ?
+                JOIN nedis_meta.hospital_capacity hc ON hcp.ptmiemcd = hc.ptmiemcd
+                WHERE hcp.ptmizipc = ? AND hcp.ptmibrtd = ? AND hcp.ptmisexx = ?
+                      AND hcp.ptmiemcd != ?
                       AND hc.adr LIKE ?
                 ORDER BY hcp.probability DESC
                 LIMIT 3
@@ -674,10 +674,10 @@ class HospitalGravityAllocator:
             if len(alternative_hospitals) == 0:
                 # 동일 지역에 대안이 없으면 전국 범위에서 찾기
                 alternative_hospitals = self.db.fetch_dataframe("""
-                    SELECT emorg_cd, probability
+                    SELECT ptmiemcd, probability
                     FROM nedis_meta.hospital_choice_prob
-                    WHERE pat_do_cd = ? AND pat_age_gr = ? AND pat_sex = ?
-                          AND emorg_cd != ?
+                    WHERE ptmizipc = ? AND ptmibrtd = ? AND ptmisexx = ?
+                          AND ptmiemcd != ?
                     ORDER BY probability DESC
                     LIMIT 5
                 """, [region, age, sex, original_hospital])
@@ -686,12 +686,12 @@ class HospitalGravityAllocator:
             redistributed = 0
             
             for _, alt_hospital_row in alternative_hospitals.iterrows():
-                alt_hospital = alt_hospital_row['emorg_cd']
+                alt_hospital = alt_hospital_row['ptmiemcd']
                 
                 # 현재 병원 부하 확인
                 current_load = sum(
                     r['allocated_count'] for r in allocation_records 
-                    if r['emorg_cd'] == alt_hospital
+                    if r['ptmiemcd'] == alt_hospital
                 )
                 
                 max_capacity = capacity_dict.get(alt_hospital, 1000)
@@ -704,10 +704,10 @@ class HospitalGravityAllocator:
                     # 기존 할당 레코드에서 해당 그룹 찾기
                     found = False
                     for record in allocation_records:
-                        if (record['emorg_cd'] == alt_hospital and 
-                            record['pat_do_cd'] == region and
-                            record['pat_age_gr'] == age and 
-                            record['pat_sex'] == sex):
+                        if (record['ptmiemcd'] == alt_hospital and 
+                            record['ptmizipc'] == region and
+                            record['ptmibrtd'] == age and 
+                            record['ptmisexx'] == sex):
                             
                             record['allocated_count'] += redistribute_count
                             record['overflow_received'] += redistribute_count
@@ -717,11 +717,11 @@ class HospitalGravityAllocator:
                     # 새 할당 레코드 생성 (기존 할당이 없던 경우)
                     if not found:
                         allocation_records.append({
-                            'vst_dt': date_str,
-                            'emorg_cd': alt_hospital,
-                            'pat_do_cd': region,
-                            'pat_age_gr': age,
-                            'pat_sex': sex,
+                            'ptmiindt': date_str,
+                            'ptmiemcd': alt_hospital,
+                            'ptmizipc': region,
+                            'ptmibrtd': age,
+                            'ptmisexx': sex,
                             'allocated_count': redistribute_count,
                             'overflow_received': redistribute_count,
                             'allocation_method': 'overflow_redistribution'
@@ -747,23 +747,23 @@ class HospitalGravityAllocator:
             # 병원별 할당 요약
             hospital_summary = self.db.fetch_dataframe("""
                 SELECT 
-                    ha.emorg_cd,
+                    ha.ptmiemcd,
                     hc.gubun,
                     SUM(ha.allocated_count) as total_allocated,
                     SUM(ha.overflow_received) as total_overflow,
                     hc.daily_capacity_mean + 2 * hc.daily_capacity_std as max_capacity,
                     ROUND(SUM(ha.allocated_count) / (hc.daily_capacity_mean + 2 * hc.daily_capacity_std) * 100, 1) as utilization_rate
                 FROM nedis_synthetic.hospital_allocations ha
-                JOIN nedis_meta.hospital_capacity hc ON ha.emorg_cd = hc.emorg_cd
-                WHERE ha.vst_dt = ?
-                GROUP BY ha.emorg_cd, hc.gubun, hc.daily_capacity_mean, hc.daily_capacity_std
+                JOIN nedis_meta.hospital_capacity hc ON ha.ptmiemcd = hc.ptmiemcd
+                WHERE ha.ptmiindt = ?
+                GROUP BY ha.ptmiemcd, hc.gubun, hc.daily_capacity_mean, hc.daily_capacity_std
                 ORDER BY total_allocated DESC
             """, [date_str])
             
             self.logger.info("Hospital allocation summary:")
             for _, row in hospital_summary.head(5).iterrows():
                 self.logger.info(
-                    f"  {row['emorg_cd']} ({row['gubun']}): "
+                    f"  {row['ptmiemcd']} ({row['gubun']}): "
                     f"allocated={row['total_allocated']}, "
                     f"overflow={row['total_overflow']}, "
                     f"utilization={row['utilization_rate']}%"
@@ -774,10 +774,10 @@ class HospitalGravityAllocator:
                 SELECT 
                     SUM(allocated_count) as total_visits,
                     SUM(overflow_received) as total_overflow,
-                    COUNT(DISTINCT emorg_cd) as hospitals_used,
+                    COUNT(DISTINCT ptmiemcd) as hospitals_used,
                     AVG(allocated_count) as avg_per_allocation
                 FROM nedis_synthetic.hospital_allocations
-                WHERE vst_dt = ?
+                WHERE ptmiindt = ?
             """, [date_str])
             
             if len(total_stats) > 0:

@@ -63,8 +63,8 @@ class CapacityConstraintPostProcessor:
         if not capacity_config.enable_overflow:
             self.logger.info("Overflow redistribution disabled; skipping capacity check and redistribution.")
             result_df = patients_df.copy()
-            if 'emorg_cd' not in result_df.columns and 'initial_hospital' in result_df.columns:
-                result_df['emorg_cd'] = result_df['initial_hospital']
+            if 'ptmiemcd' not in result_df.columns and 'initial_hospital' in result_df.columns:
+                result_df['ptmiemcd'] = result_df['initial_hospital']
             result_df['overflow_flag'] = False
             result_df['redistribution_method'] = 'disabled'
             return result_df
@@ -79,7 +79,7 @@ class CapacityConstraintPostProcessor:
         if daily_capacity_limits is None or len(daily_capacity_limits) == 0:
             self.logger.warning("No capacity reference available; skipping capacity redistribution.")
             result_df = patients_df.copy()
-            result_df['emorg_cd'] = result_df.get('initial_hospital', result_df.get('emorg_cd'))
+            result_df['ptmiemcd'] = result_df.get('initial_hospital', result_df.get('ptmiemcd'))
             result_df['overflow_flag'] = False
             result_df['redistribution_method'] = 'skipped'
             return result_df
@@ -106,7 +106,7 @@ class CapacityConstraintPostProcessor:
         if self._hospital_capacity_cache is None:
             self._hospital_capacity_cache = self.db.fetch_dataframe("""
                 SELECT 
-                    emorg_cd,
+                    ptmiemcd,
                     hospname,
                     adr,
                     daily_capacity_mean as capacity_beds,
@@ -118,7 +118,7 @@ class CapacityConstraintPostProcessor:
         if self._hospital_choice_probs_cache is None:
             self._hospital_choice_probs_cache = self.db.fetch_dataframe("""
                 SELECT 
-                    pat_do_cd, pat_age_gr, pat_sex, emorg_cd,
+                    ptmizipc, ptmibrtd, ptmisexx, ptmiemcd,
                     probability, rank
                 FROM nedis_meta.hospital_choice_prob
                 WHERE rank <= 3  -- Top 3 선호 병원만
@@ -167,8 +167,8 @@ class CapacityConstraintPostProcessor:
                     daily_capacity *= capacity_config.holiday_capacity_multiplier
                 
                 capacity_limits.append({
-                    'vst_dt': date_str,
-                    'emorg_cd': hospital['emorg_cd'],
+                    'ptmiindt': date_str,
+                    'ptmiemcd': hospital['ptmiemcd'],
                     'daily_capacity_limit': max(1, int(daily_capacity)),
                     'base_capacity': hospital['base_daily_capacity'],
                     'is_weekend': is_weekend,
@@ -182,8 +182,8 @@ class CapacityConstraintPostProcessor:
     
     def _calculate_current_loads(self, patients_df: pd.DataFrame) -> pd.DataFrame:
         """현재 병원별 부하 계산"""
-        current_loads = patients_df.groupby(['vst_dt', 'initial_hospital']).size().reset_index()
-        current_loads.columns = ['vst_dt', 'emorg_cd', 'current_load']
+        current_loads = patients_df.groupby(['ptmiindt', 'initial_hospital']).size().reset_index()
+        current_loads.columns = ['ptmiindt', 'ptmiemcd', 'current_load']
         
         return current_loads
     
@@ -195,7 +195,7 @@ class CapacityConstraintPostProcessor:
         self.logger.info("Redistributing overflow patients")
         
         result_df = patients_df.copy()
-        result_df['emorg_cd'] = result_df['initial_hospital']  # 초기값 설정
+        result_df['ptmiemcd'] = result_df['initial_hospital']  # 초기값 설정
         result_df['overflow_flag'] = False
         result_df['redistribution_method'] = 'initial'
         
@@ -203,7 +203,7 @@ class CapacityConstraintPostProcessor:
         load_vs_capacity = pd.merge(
             current_loads,
             capacity_limits,
-            on=['vst_dt', 'emorg_cd'],
+            on=['ptmiindt', 'ptmiemcd'],
             how='left'
         )
         
@@ -222,8 +222,8 @@ class CapacityConstraintPostProcessor:
         total_redistributed = 0
         
         for _, overflow_case in overflow_cases.iterrows():
-            date_str = overflow_case['vst_dt']
-            hospital_cd = overflow_case['emorg_cd']
+            date_str = overflow_case['ptmiindt']
+            hospital_cd = overflow_case['ptmiemcd']
             excess_count = int(overflow_case['current_load'] - overflow_case['daily_capacity_limit'])
             
             if excess_count <= 0:
@@ -231,8 +231,8 @@ class CapacityConstraintPostProcessor:
             
             # 해당 날짜-병원의 환자들 식별
             overflow_patients_mask = (
-                (result_df['vst_dt'] == date_str) & 
-                (result_df['emorg_cd'] == hospital_cd)
+                (result_df['ptmiindt'] == date_str) & 
+                (result_df['ptmiemcd'] == hospital_cd)
             )
             overflow_patient_indices = result_df[overflow_patients_mask].index.tolist()
             
@@ -264,14 +264,14 @@ class CapacityConstraintPostProcessor:
         successful_count = 0
         
         # 해당 날짜의 병원별 여유 용량 계산
-        date_capacities = capacity_limits[capacity_limits['vst_dt'] == date_str].copy()
+        date_capacities = capacity_limits[capacity_limits['ptmiindt'] == date_str].copy()
         
         # 현재 날짜의 병원별 부하 재계산
-        current_date_loads = result_df[result_df['vst_dt'] == date_str].groupby('emorg_cd').size()
+        current_date_loads = result_df[result_df['ptmiindt'] == date_str].groupby('ptmiemcd').size()
         
-        for hospital_cd, capacity_limit in zip(date_capacities['emorg_cd'], date_capacities['daily_capacity_limit']):
+        for hospital_cd, capacity_limit in zip(date_capacities['ptmiemcd'], date_capacities['daily_capacity_limit']):
             current_load = current_date_loads.get(hospital_cd, 0)
-            date_capacities.loc[date_capacities['emorg_cd'] == hospital_cd, 'available_capacity'] = \
+            date_capacities.loc[date_capacities['ptmiemcd'] == hospital_cd, 'available_capacity'] = \
                 max(0, capacity_limit - current_load)
         
         # 여유 용량이 있는 병원들만 선택
@@ -301,12 +301,12 @@ class CapacityConstraintPostProcessor:
             
             if new_hospital is not None:
                 # 재할당 수행
-                result_df.loc[patient_idx, 'emorg_cd'] = new_hospital
+                result_df.loc[patient_idx, 'ptmiemcd'] = new_hospital
                 result_df.loc[patient_idx, 'overflow_flag'] = True
                 result_df.loc[patient_idx, 'redistribution_method'] = capacity_config.overflow_redistribution_method
                 
                 # 해당 병원의 여유 용량 감소
-                hospital_mask = available_hospitals['emorg_cd'] == new_hospital
+                hospital_mask = available_hospitals['ptmiemcd'] == new_hospital
                 available_hospitals.loc[hospital_mask, 'available_capacity'] -= 1
                 
                 successful_count += 1
@@ -324,41 +324,41 @@ class CapacityConstraintPostProcessor:
             # 여유 용량이 있는 병원 중 랜덤 선택
             candidates = available_hospitals[available_hospitals['available_capacity'] > 0]
             if len(candidates) > 0:
-                return np.random.choice(candidates['emorg_cd'].values)
+                return np.random.choice(candidates['ptmiemcd'].values)
         
         elif method == 'same_region_first':
             # 동일 지역 내 병원 우선 재할당
-            patient_region = str(patient_data['pat_do_cd'])
-            # 병원 지역코드 파생 (pat_do_cd가 있으면 우선 사용, 없으면 adr 사용)
+            patient_region = str(patient_data['ptmizipc'])
+            # 병원 지역코드 파생 (ptmizipc가 있으면 우선 사용, 없으면 adr 사용)
             hospital_df = self._hospital_capacity_cache.copy()
-            if 'pat_do_cd' in hospital_df.columns:
-                hospital_df['hospital_region'] = hospital_df['pat_do_cd'].astype(str)
+            if 'ptmizipc' in hospital_df.columns:
+                hospital_df['hospital_region'] = hospital_df['ptmizipc'].astype(str)
             else:
                 hospital_df['hospital_region'] = hospital_df['adr'].astype(str)
-            hosp_regions = hospital_df[['emorg_cd', 'hospital_region']]
+            hosp_regions = hospital_df[['ptmiemcd', 'hospital_region']]
 
             candidates = available_hospitals[available_hospitals['available_capacity'] > 0].copy()
-            candidates = pd.merge(candidates, hosp_regions, on='emorg_cd', how='left')
+            candidates = pd.merge(candidates, hosp_regions, on='ptmiemcd', how='left')
             same_region = candidates[candidates['hospital_region'] == patient_region]
             if len(same_region) > 0:
-                return np.random.choice(same_region['emorg_cd'].values)
+                return np.random.choice(same_region['ptmiemcd'].values)
             else:
                 if len(candidates) > 0:
-                    return np.random.choice(candidates['emorg_cd'].values)
+                    return np.random.choice(candidates['ptmiemcd'].values)
         
         elif method == 'second_choice_probability':
             # 원래 선호도 기반 재할당
             patient_profile = (
-                patient_data['pat_do_cd'],
-                patient_data['pat_age_gr'], 
-                patient_data['pat_sex']
+                patient_data['ptmizipc'],
+                patient_data['ptmibrtd'], 
+                patient_data['ptmisexx']
             )
             
             # 해당 환자 프로필의 병원 선택 확률
             choice_probs = self._hospital_choice_probs_cache[
-                (self._hospital_choice_probs_cache['pat_do_cd'] == patient_profile[0]) &
-                (self._hospital_choice_probs_cache['pat_age_gr'] == patient_profile[1]) &
-                (self._hospital_choice_probs_cache['pat_sex'] == patient_profile[2]) &
+                (self._hospital_choice_probs_cache['ptmizipc'] == patient_profile[0]) &
+                (self._hospital_choice_probs_cache['ptmibrtd'] == patient_profile[1]) &
+                (self._hospital_choice_probs_cache['ptmisexx'] == patient_profile[2]) &
                 (self._hospital_choice_probs_cache['rank'] >= 2)  # 2nd choice 이상
             ].copy()
             
@@ -367,8 +367,8 @@ class CapacityConstraintPostProcessor:
                 available_choices = pd.merge(
                     available_hospitals[available_hospitals['available_capacity'] > 0],
                     choice_probs,
-                    left_on='emorg_cd',
-                    right_on='emorg_cd',
+                    left_on='ptmiemcd',
+                    right_on='ptmiemcd',
                     how='inner'
                 )
                 
@@ -378,7 +378,7 @@ class CapacityConstraintPostProcessor:
                     probs = probs / probs.sum()  # 정규화
                     
                     chosen_hospital = np.random.choice(
-                        available_choices['emorg_cd'].values,
+                        available_choices['ptmiemcd'].values,
                         p=probs
                     )
                     return chosen_hospital
@@ -392,14 +392,14 @@ class CapacityConstraintPostProcessor:
         self.logger.info("Validating capacity constraint results")
         
         # 최종 병원별 부하 계산
-        final_loads = result_df.groupby(['vst_dt', 'emorg_cd']).size().reset_index()
-        final_loads.columns = ['vst_dt', 'emorg_cd', 'final_load']
+        final_loads = result_df.groupby(['ptmiindt', 'ptmiemcd']).size().reset_index()
+        final_loads.columns = ['ptmiindt', 'ptmiemcd', 'final_load']
         
         # 용량 제한과 비교
         load_vs_limit = pd.merge(
             final_loads,
             capacity_limits,
-            on=['vst_dt', 'emorg_cd'],
+            on=['ptmiindt', 'ptmiemcd'],
             how='left'
         )
         
@@ -467,13 +467,13 @@ class CapacityConstraintPostProcessor:
         report['redistribution_methods'] = redistribution_methods.to_dict()
         
         # 병원별 최종 부하 분포
-        final_hospital_loads = result_df.groupby(['vst_dt', 'emorg_cd']).size()
+        final_hospital_loads = result_df.groupby(['ptmiindt', 'ptmiemcd']).size()
         report['avg_daily_load_per_hospital'] = final_hospital_loads.mean()
         report['max_daily_load_per_hospital'] = final_hospital_loads.max()
         report['min_daily_load_per_hospital'] = final_hospital_loads.min()
         
         # 날짜별 재할당률
-        daily_redistribution = result_df.groupby('vst_dt')['overflow_flag'].mean() * 100
+        daily_redistribution = result_df.groupby('ptmiindt')['overflow_flag'].mean() * 100
         report['avg_daily_redistribution_rate'] = daily_redistribution.mean()
         report['max_daily_redistribution_rate'] = daily_redistribution.max()
         

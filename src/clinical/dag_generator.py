@@ -5,11 +5,11 @@ DAG 기반 순차 임상 속성 생성기입니다.
 의료적 인과관계를 고려하여 임상 속성들을 올바른 순서로 생성합니다.
 
 생성 순서:
-1. vst_meth (내원수단) - 독립적
-2. msypt (주증상) - 내원수단과 연관
-3. ktas_fstu (KTAS 등급) - 주증상, 연령, 내원수단에 조건적
-4. main_trt_p (주요치료과) - KTAS와 주증상에 조건적
-5. emtrt_rust (응급치료결과) - KTAS에 강하게 의존
+1. ptmiinmn (내원수단) - 독립적
+2. ptmimnsy (주증상) - 내원수단과 연관
+3. ptmikts1 (KTAS 등급) - 주증상, 연령, 내원수단에 조건적
+4. ptmidept (주요치료과) - KTAS와 주증상에 조건적
+5. ptmiemrt (응급치료결과) - KTAS에 강하게 의존
 """
 
 import numpy as np
@@ -40,11 +40,11 @@ class ClinicalDAGGenerator:
         
         # DAG 생성 순서 정의 (의료적 인과관계 순서)
         self.dag_order = [
-            'vst_meth',      # 내원수단
-            'msypt',         # 주증상  
-            'ktas_fstu',     # KTAS 등급
-            'main_trt_p',    # 주요치료과
-            'emtrt_rust'     # 응급치료결과
+            'ptmiinmn',      # 내원수단
+            'ptmimnsy',      # 주증상
+            'ptmikts1',      # KTAS 등급
+            'ptmidept',      # 주요치료과
+            'ptmiemrt'       # 응급치료결과
         ]
         
         # 시간대별 도착 패턴 (시간별 가중치)
@@ -74,45 +74,45 @@ class ClinicalDAGGenerator:
             create_table_sql = """
                 CREATE TABLE IF NOT EXISTS nedis_synthetic.clinical_records (
                     index_key VARCHAR PRIMARY KEY,
-                    emorg_cd VARCHAR NOT NULL,
-                    pat_reg_no VARCHAR NOT NULL,
-                    vst_dt VARCHAR NOT NULL,
-                    vst_tm VARCHAR NOT NULL,
-                    pat_age_gr VARCHAR NOT NULL,
-                    pat_sex VARCHAR NOT NULL,
-                    pat_do_cd VARCHAR NOT NULL,
-                    
+                    ptmiemcd VARCHAR NOT NULL,
+                    ptmiidno VARCHAR NOT NULL,
+                    ptmiindt VARCHAR NOT NULL,
+                    ptmiintm VARCHAR NOT NULL,
+                    ptmibrtd VARCHAR NOT NULL,
+                    ptmisexx VARCHAR NOT NULL,
+                    ptmizipc VARCHAR NOT NULL,
+
                     -- 내원 관련
-                    vst_meth VARCHAR,        -- 내원수단
-                    
+                    ptmiinmn VARCHAR,        -- 내원수단
+
                     -- 임상 중증도
-                    ktas_fstu VARCHAR,       -- KTAS 등급
-                    ktas01 INTEGER,          -- KTAS 숫자
-                    
+                    ptmikts1 VARCHAR,       -- KTAS 등급
+                    ptmikpr1 VARCHAR,       -- KTAS 프로토콜 코드
+
                     -- 증상 및 치료
-                    msypt VARCHAR,           -- 주증상
-                    main_trt_p VARCHAR,      -- 주요치료과
-                    
+                    ptmimnsy VARCHAR,        -- 주증상
+                    ptmidept VARCHAR,        -- 주요치료과
+
                     -- 치료 결과
-                    emtrt_rust VARCHAR,      -- 응급치료결과
-                    
+                    ptmiemrt VARCHAR,        -- 응급치료결과
+
                     -- 퇴실 시간
-                    otrm_dt VARCHAR,         -- 퇴실일자
-                    otrm_tm VARCHAR,         -- 퇴실시간
-                    
+                    ptmiotdt VARCHAR,        -- 퇴실일자
+                    ptmiottm VARCHAR,        -- 퇴실시간
+
                     -- 생체징후
-                    vst_sbp INTEGER DEFAULT -1,      -- 수축기혈압
-                    vst_dbp INTEGER DEFAULT -1,      -- 이완기혈압
-                    vst_per_pu INTEGER DEFAULT -1,   -- 맥박수
-                    vst_per_br INTEGER DEFAULT -1,   -- 호흡수
-                    vst_bdht DOUBLE DEFAULT -1, -- 체온
-                    vst_oxy INTEGER DEFAULT -1,      -- 산소포화도
-                    
+                    ptmihibp INTEGER DEFAULT -1,      -- 수축기혈압
+                    ptmilobp INTEGER DEFAULT -1,      -- 이완기혈압
+                    ptmipuls INTEGER DEFAULT -1,      -- 맥박수
+                    ptmibrth INTEGER DEFAULT -1,      -- 호흡수
+                    ptmibdht DOUBLE DEFAULT -1, -- 체온
+                    ptmivoxs INTEGER DEFAULT -1,      -- 산소포화도
+
                     -- 입원 관련 (해당 시에만)
-                    inpat_dt VARCHAR,        -- 입원일자
-                    inpat_tm VARCHAR,        -- 입원시간
-                    inpat_rust VARCHAR,      -- 입원결과
-                    
+                    ptmihsdt VARCHAR,        -- 입원일자
+                    ptmihstm VARCHAR,        -- 입원시간
+                    ptmidcrt VARCHAR,        -- 입원결과
+
                     -- 메타데이터
                     generation_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     generation_method VARCHAR DEFAULT 'dag_sequential'
@@ -142,11 +142,11 @@ class ClinicalDAGGenerator:
         try:
             # 해당 날짜의 병원 할당 데이터 로드
             allocation_data = self.db.fetch_dataframe("""
-                SELECT 
-                    vst_dt, emorg_cd, pat_do_cd, pat_age_gr, pat_sex, allocated_count
+                SELECT
+                    ptmiindt, ptmiemcd, ptmizipc, ptmibrtd, ptmisexx, allocated_count
                 FROM nedis_synthetic.hospital_allocations
-                WHERE vst_dt = ?
-                ORDER BY emorg_cd, pat_do_cd, pat_age_gr, pat_sex
+                WHERE ptmiindt = ?
+                ORDER BY ptmiemcd, ptmizipc, ptmibrtd, ptmisexx
             """, [date_str])
             
             if len(allocation_data) == 0:
@@ -155,8 +155,8 @@ class ClinicalDAGGenerator:
             
             # 해당 날짜의 기존 데이터 삭제 (재실행 시 중복 방지)
             self.db.execute_query("""
-                DELETE FROM nedis_synthetic.clinical_records 
-                WHERE vst_dt = ?
+                DELETE FROM nedis_synthetic.clinical_records
+                WHERE ptmiindt = ?
             """, [date_str])
             
             total_records_to_generate = allocation_data['allocated_count'].sum()
@@ -204,11 +204,11 @@ class ClinicalDAGGenerator:
             생성된 레코드 리스트
         """
         
-        vst_dt = allocation_row['vst_dt']
-        emorg_cd = allocation_row['emorg_cd']
-        pat_do_cd = allocation_row['pat_do_cd']
-        pat_age_gr = allocation_row['pat_age_gr']
-        pat_sex = allocation_row['pat_sex']
+        ptmiindt = allocation_row['ptmiindt']
+        ptmiemcd = allocation_row['ptmiemcd']
+        ptmizipc = allocation_row['ptmizipc']
+        ptmibrtd = allocation_row['ptmibrtd']
+        ptmisexx = allocation_row['ptmisexx']
         count = int(allocation_row['allocated_count'])
         
         records = []
@@ -218,34 +218,34 @@ class ClinicalDAGGenerator:
             patient_id = start_patient_id + i
             
             # 기본 식별 정보
-            index_key = f"{emorg_cd}_{patient_id:08d}_{vst_dt}"
-            pat_reg_no = f"SYN{patient_id:08d}"
+            index_key = f"{ptmiemcd}_{patient_id:08d}_{ptmiindt}"
+            ptmiidno = f"SYN{patient_id:08d}"
             
             # 도착 시간 생성 (시간대별 가중치 기반)
-            vst_tm = self._generate_arrival_time()
-            
+            ptmiintm = self._generate_arrival_time()
+
             # DAG 순서에 따른 임상 속성 순차 생성
             clinical_attrs = self._generate_sequential_attributes(
-                emorg_cd, pat_age_gr, pat_sex, pat_do_cd
+                ptmiemcd, ptmibrtd, ptmisexx, ptmizipc
             )
-            
+
             # 퇴실 시간 계산
-            otrm_dt, otrm_tm = self._calculate_discharge_time(
-                vst_dt, vst_tm, clinical_attrs['ktas_fstu']
+            ptmiotdt, ptmiottm = self._calculate_discharge_time(
+                ptmiindt, ptmiintm, clinical_attrs['ptmikts1']
             )
-            
+
             # 레코드 구성
             record = {
                 'index_key': index_key,
-                'emorg_cd': emorg_cd,
-                'pat_reg_no': pat_reg_no,
-                'vst_dt': vst_dt,
-                'vst_tm': vst_tm,
-                'pat_age_gr': pat_age_gr,
-                'pat_sex': pat_sex,
-                'pat_do_cd': pat_do_cd,
-                'otrm_dt': otrm_dt,
-                'otrm_tm': otrm_tm,
+                'ptmiemcd': ptmiemcd,
+                'ptmiidno': ptmiidno,
+                'ptmiindt': ptmiindt,
+                'ptmiintm': ptmiintm,
+                'ptmibrtd': ptmibrtd,
+                'ptmisexx': ptmisexx,
+                'ptmizipc': ptmizipc,
+                'ptmiotdt': ptmiotdt,
+                'ptmiottm': ptmiottm,
                 **clinical_attrs
             }
             
@@ -270,16 +270,16 @@ class ClinicalDAGGenerator:
         
         return f"{hour:02d}{minute:02d}"
     
-    def _generate_sequential_attributes(self, emorg_cd: str, pat_age_gr: str, 
-                                      pat_sex: str, pat_do_cd: str) -> Dict[str, Any]:
+    def _generate_sequential_attributes(self, ptmiemcd: str, ptmibrtd: str, 
+                                      ptmisexx: str, ptmizipc: str) -> Dict[str, Any]:
         """
         DAG 순서에 따른 순차적 임상 속성 생성
         
         Args:
-            emorg_cd: 병원 코드
-            pat_age_gr: 연령군
-            pat_sex: 성별
-            pat_do_cd: 거주지 코드
+            ptmiemcd: 병원 코드
+            ptmibrtd: 연령군
+            ptmisexx: 성별
+            ptmizipc: 거주지 코드
             
         Returns:
             생성된 임상 속성 딕셔너리
@@ -288,48 +288,48 @@ class ClinicalDAGGenerator:
         attributes = {}
         
         try:
-            # 1. 내원수단 (vst_meth) 생성
-            attributes['vst_meth'] = self._generate_visit_method(pat_age_gr)
-            
-            # 2. 주증상 (msypt) 생성
-            attributes['msypt'] = self._generate_chief_complaint(pat_age_gr, pat_sex)
-            
-            # 3. KTAS 등급 (ktas_fstu) 생성 - 조건부 확률 사용
-            attributes['ktas_fstu'] = self._generate_ktas_level(
-                pat_age_gr, pat_sex, emorg_cd, attributes['vst_meth']
+            # 1. 내원수단 (ptmiinmn) 생성
+            attributes['ptmiinmn'] = self._generate_visit_method(ptmibrtd)
+
+            # 2. 주증상 (ptmimnsy) 생성
+            attributes['ptmimnsy'] = self._generate_chief_complaint(ptmibrtd, ptmisexx)
+
+            # 3. KTAS 등급 (ptmikts1) 생성 - 조건부 확률 사용
+            attributes['ptmikts1'] = self._generate_ktas_level(
+                ptmibrtd, ptmisexx, ptmiemcd, attributes['ptmiinmn']
             )
-            attributes['ktas01'] = int(attributes['ktas_fstu'])
-            
-            # 4. 주요치료과 (main_trt_p) 생성
-            attributes['main_trt_p'] = self._generate_treatment_department(
-                attributes['ktas_fstu'], attributes['msypt']
+            attributes['ptmikpr1'] = str(attributes['ptmikts1'])
+
+            # 4. 주요치료과 (ptmidept) 생성
+            attributes['ptmidept'] = self._generate_treatment_department(
+                attributes['ptmikts1'], attributes['ptmimnsy']
             )
-            
-            # 5. 응급치료결과 (emtrt_rust) 생성 - KTAS에 강하게 의존
-            attributes['emtrt_rust'] = self._generate_treatment_result(
-                attributes['ktas_fstu'], pat_age_gr
+
+            # 5. 응급치료결과 (ptmiemrt) 생성 - KTAS에 강하게 의존
+            attributes['ptmiemrt'] = self._generate_treatment_result(
+                attributes['ptmikts1'], ptmibrtd
             )
             
         except Exception as e:
             self.logger.error(f"Error in sequential attribute generation: {e}")
-            self.logger.error(f"Context: emorg_cd={emorg_cd}, pat_age_gr={pat_age_gr}, pat_sex={pat_sex}")
+            self.logger.error(f"Context: ptmiemcd={ptmiemcd}, ptmibrtd={ptmibrtd}, ptmisexx={ptmisexx}")
             raise
         
         return attributes
     
-    def _generate_visit_method(self, pat_age_gr: str) -> str:
+    def _generate_visit_method(self, ptmibrtd: str) -> str:
         """
         연령대 기반 내원수단 생성
         
         Args:
-            pat_age_gr: 연령군
+            ptmibrtd: 연령군
             
         Returns:
             내원수단 코드
         """
         
         # 연령대별 내원수단 확률 (실제 NEDIS 패턴 기반)
-        age_vst_method_probs = {
+        age_ptmiinmnod_probs = {
             '01': {'1': 0.60, '3': 0.25, '6': 0.10, '9': 0.05},  # 영아 - 119 구급차 높음
             '09': {'1': 0.40, '3': 0.20, '6': 0.30, '9': 0.10},  # 유아
             '10': {'1': 0.15, '3': 0.15, '6': 0.60, '9': 0.10},  # 10대 - 도보 높음
@@ -343,7 +343,7 @@ class ClinicalDAGGenerator:
             '90': {'1': 0.50, '3': 0.35, '6': 0.10, '9': 0.05}   # 90대
         }
         
-        probs = age_vst_method_probs.get(pat_age_gr, age_vst_method_probs['30'])  # 기본값
+        probs = age_ptmiinmnod_probs.get(ptmibrtd, age_ptmiinmnod_probs['30'])  # 기본값
         methods = list(probs.keys())
         probabilities = np.array(list(probs.values()))
         
@@ -352,22 +352,22 @@ class ClinicalDAGGenerator:
         
         return np.random.choice(methods, p=probabilities)
     
-    def _generate_chief_complaint(self, pat_age_gr: str, pat_sex: str) -> str:
+    def _generate_chief_complaint(self, ptmibrtd: str, ptmisexx: str) -> str:
         """
         연령/성별 기반 주증상 생성
         
         Args:
-            pat_age_gr: 연령군
-            pat_sex: 성별
+            ptmibrtd: 연령군
+            ptmisexx: 성별
             
         Returns:
             주증상 코드
         """
         
         # 단순화된 주증상 카테고리 (실제로는 더 세분화)
-        age_sex_msypt_probs = {
-            ('01', 'M'): {'10': 0.30, '20': 0.25, '30': 0.20, '40': 0.15, '50': 0.10},  # 영아 남성
-            ('01', 'F'): {'10': 0.30, '20': 0.25, '30': 0.20, '40': 0.15, '50': 0.10},  # 영아 여성
+        age_sex_ptmimnsy_probs = {
+            ('01', '1'): {'10': 0.30, '20': 0.25, '30': 0.20, '40': 0.15, '50': 0.10},  # 영아 남성
+            ('01', '2'): {'10': 0.30, '20': 0.25, '30': 0.20, '40': 0.15, '50': 0.10},  # 영아 여성
             # ... 다른 연령/성별 조합들도 유사하게 정의
         }
         
@@ -375,7 +375,7 @@ class ClinicalDAGGenerator:
         default_probs = {'10': 0.20, '20': 0.18, '30': 0.15, '40': 0.12, '50': 0.10, 
                         '60': 0.08, '70': 0.07, '80': 0.06, '90': 0.04}
         
-        probs = age_sex_msypt_probs.get((pat_age_gr, pat_sex), default_probs)
+        probs = age_sex_ptmimnsy_probs.get((ptmibrtd, ptmisexx), default_probs)
         symptoms = list(probs.keys())
         probabilities = np.array(list(probs.values()))
         
@@ -384,16 +384,16 @@ class ClinicalDAGGenerator:
         
         return np.random.choice(symptoms, p=probabilities)
     
-    def _generate_ktas_level(self, pat_age_gr: str, pat_sex: str, 
-                           emorg_cd: str, vst_meth: str) -> str:
+    def _generate_ktas_level(self, ptmibrtd: str, ptmisexx: str, 
+                           ptmiemcd: str, ptmiinmn: str) -> str:
         """
         조건부 확률 테이블을 사용한 KTAS 등급 생성
         
         Args:
-            pat_age_gr: 연령군
-            pat_sex: 성별
-            emorg_cd: 병원 코드
-            vst_meth: 내원수단
+            ptmibrtd: 연령군
+            ptmisexx: 성별
+            ptmiemcd: 병원 코드
+            ptmiinmn: 내원수단
             
         Returns:
             KTAS 등급
@@ -402,29 +402,29 @@ class ClinicalDAGGenerator:
         try:
             # 병원 종별 조회
             hospital_info = self.db.fetch_dataframe("""
-                SELECT gubun FROM nedis_meta.hospital_capacity 
-                WHERE emorg_cd = ?
-            """, [emorg_cd])
-            
+                SELECT gubun FROM nedis_meta.hospital_capacity
+                WHERE ptmiemcd = ?
+            """, [ptmiemcd])
+
             gubun = hospital_info.iloc[0]['gubun'] if len(hospital_info) > 0 else '지역기관'
-            
+
             # 조건부 확률 조회
             ktas_probs = self.db.fetch_dataframe("""
-                SELECT ktas_fstu, probability
+                SELECT ptmikts1, probability
                 FROM nedis_meta.ktas_conditional_prob
-                WHERE pat_age_gr = ? AND pat_sex = ? AND gubun = ? AND vst_meth = ?
+                WHERE ptmibrtd = ? AND ptmisexx = ? AND gubun = ? AND ptmiinmn = ?
                 ORDER BY probability DESC
-            """, [pat_age_gr, pat_sex, gubun, vst_meth])
-            
+            """, [ptmibrtd, ptmisexx, gubun, ptmiinmn])
+
             if len(ktas_probs) == 0:
                 # 조건부 확률이 없으면 전체 평균 사용
                 ktas_probs = self.db.fetch_dataframe("""
-                    SELECT ktas_fstu, AVG(probability) as probability
+                    SELECT ptmikts1, AVG(probability) as probability
                     FROM nedis_meta.ktas_conditional_prob
-                    WHERE pat_age_gr = ? AND pat_sex = ?
-                    GROUP BY ktas_fstu
+                    WHERE ptmibrtd = ? AND ptmisexx = ?
+                    GROUP BY ptmikts1
                     ORDER BY probability DESC
-                """, [pat_age_gr, pat_sex])
+                """, [ptmibrtd, ptmisexx])
             
             if len(ktas_probs) == 0:
                 # 여전히 없으면 기본 KTAS 분포 사용
@@ -433,26 +433,26 @@ class ClinicalDAGGenerator:
                 return np.random.choice(['1', '2', '3', '4', '5'], p=default_probs)
             
             # 확률 정규화
-            ktas_levels = ktas_probs['ktas_fstu'].values
+            ktas_levels = ktas_probs['ptmikts1'].values
             probabilities = ktas_probs['probability'].values
             probabilities = probabilities / probabilities.sum()
             
             return np.random.choice(ktas_levels, p=probabilities)
             
         except Exception as e:
-            self.logger.warning(f"KTAS generation fallback for {emorg_cd}: {e}")
+            self.logger.warning(f"KTAS generation fallback for {ptmiemcd}: {e}")
             # 기본 분포로 폴백
             default_probs = np.array([0.007, 0.053, 0.385, 0.485, 0.070])
             default_probs = default_probs / default_probs.sum()  # 확률 정규화
             return np.random.choice(['1', '2', '3', '4', '5'], p=default_probs)
     
-    def _generate_treatment_department(self, ktas_level: str, msypt: str) -> str:
+    def _generate_treatment_department(self, ktas_level: str, ptmimnsy: str) -> str:
         """
         KTAS와 주증상 기반 주요치료과 생성
         
         Args:
             ktas_level: KTAS 등급
-            msypt: 주증상
+            ptmimnsy: 주증상
             
         Returns:
             치료과 코드
@@ -476,13 +476,13 @@ class ClinicalDAGGenerator:
         
         return np.random.choice(departments, p=probabilities)
     
-    def _generate_treatment_result(self, ktas_level: str, pat_age_gr: str) -> str:
+    def _generate_treatment_result(self, ktas_level: str, ptmibrtd: str) -> str:
         """
         KTAS 등급 기반 응급치료결과 생성 (의학적 가이드라인 적용)
         
         Args:
             ktas_level: KTAS 등급
-            pat_age_gr: 연령군 (고령자 중증도 조정)
+            ptmibrtd: 연령군 (고령자 중증도 조정)
             
         Returns:
             치료결과 코드
@@ -491,7 +491,7 @@ class ClinicalDAGGenerator:
         base_probs = self.ktas_outcome_probs.get(ktas_level, self.ktas_outcome_probs['3'])
         
         # 고령자 중증도 조정 (입원율 증가, 귀가율 감소)
-        if pat_age_gr in ['70', '80', '90']:
+        if ptmibrtd in ['70', '80', '90']:
             adjusted_probs = base_probs.copy()
             
             # 고령자는 입원 확률 증가
@@ -512,13 +512,13 @@ class ClinicalDAGGenerator:
         
         return np.random.choice(outcomes, p=probabilities)
     
-    def _calculate_discharge_time(self, vst_dt: str, vst_tm: str, ktas_level: str) -> Tuple[str, str]:
+    def _calculate_discharge_time(self, ptmiindt: str, ptmiintm: str, ktas_level: str) -> Tuple[str, str]:
         """
         KTAS 등급 기반 체류시간 계산 및 퇴실시간 결정
         
         Args:
-            vst_dt: 방문 날짜
-            vst_tm: 방문 시간
+            ptmiindt: 방문 날짜
+            ptmiintm: 방문 시간
             ktas_level: KTAS 등급
             
         Returns:
@@ -545,16 +545,16 @@ class ClinicalDAGGenerator:
         duration_minutes = max(duration_minutes, 15)  # 최소 15분
         
         # 방문시간을 datetime으로 변환
-        arrival_datetime = datetime.strptime(f"{vst_dt}{vst_tm}", "%Y%m%d%H%M")
+        arrival_datetime = datetime.strptime(f"{ptmiindt}{ptmiintm}", "%Y%m%d%H%M")
         
         # 체류시간 추가
         discharge_datetime = arrival_datetime + timedelta(minutes=int(duration_minutes))
         
         # 날짜 변경 처리 (자정 넘어가는 경우)
-        otrm_dt = discharge_datetime.strftime("%Y%m%d")
-        otrm_tm = discharge_datetime.strftime("%H%M")
+        ptmiotdt = discharge_datetime.strftime("%Y%m%d")
+        ptmiottm = discharge_datetime.strftime("%H%M")
         
-        return otrm_dt, otrm_tm
+        return ptmiotdt, ptmiottm
     
     def _batch_insert_records(self, records: List[Dict[str, Any]]):
         """배치 레코드 삽입"""
@@ -564,20 +564,20 @@ class ClinicalDAGGenerator:
         try:
             insert_sql = """
                 INSERT INTO nedis_synthetic.clinical_records
-                (index_key, emorg_cd, pat_reg_no, vst_dt, vst_tm, pat_age_gr, pat_sex, pat_do_cd,
-                 vst_meth, ktas_fstu, ktas01, msypt, main_trt_p, emtrt_rust, otrm_dt, otrm_tm)
+                (index_key, ptmiemcd, ptmiidno, ptmiindt, ptmiintm, ptmibrtd, ptmisexx, ptmizipc,
+                 ptmiinmn, ptmikts1, ptmikpr1, ptmimnsy, ptmidept, ptmiemrt, ptmiotdt, ptmiottm)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
-            
+
             batch_data = []
             for record in records:
                 batch_data.append((
-                    record['index_key'], record['emorg_cd'], record['pat_reg_no'],
-                    record['vst_dt'], record['vst_tm'], record['pat_age_gr'], 
-                    record['pat_sex'], record['pat_do_cd'], record['vst_meth'],
-                    record['ktas_fstu'], record['ktas01'], record['msypt'],
-                    record['main_trt_p'], record['emtrt_rust'], 
-                    record['otrm_dt'], record['otrm_tm']
+                    record['index_key'], record['ptmiemcd'], record['ptmiidno'],
+                    record['ptmiindt'], record['ptmiintm'], record['ptmibrtd'],
+                    record['ptmisexx'], record['ptmizipc'], record['ptmiinmn'],
+                    record['ptmikts1'], record['ptmikpr1'], record['ptmimnsy'],
+                    record['ptmidept'], record['ptmiemrt'],
+                    record['ptmiotdt'], record['ptmiottm']
                 ))
             
             # 배치 실행 (청크 단위)
@@ -603,19 +603,19 @@ class ClinicalDAGGenerator:
         
         summary = {
             'total_records': len(records),
-            'unique_hospitals': records_df['emorg_cd'].nunique(),
-            'ktas_distribution': records_df['ktas_fstu'].value_counts().to_dict(),
-            'treatment_result_distribution': records_df['emtrt_rust'].value_counts().to_dict(),
-            'visit_method_distribution': records_df['vst_meth'].value_counts().to_dict(),
-            'age_group_distribution': records_df['pat_age_gr'].value_counts().to_dict(),
-            'gender_distribution': records_df['pat_sex'].value_counts().to_dict()
+            'unique_hospitals': records_df['ptmiemcd'].nunique(),
+            'ktas_distribution': records_df['ptmikts1'].value_counts().to_dict(),
+            'treatment_result_distribution': records_df['ptmiemrt'].value_counts().to_dict(),
+            'visit_method_distribution': records_df['ptmiinmn'].value_counts().to_dict(),
+            'age_group_distribution': records_df['ptmibrtd'].value_counts().to_dict(),
+            'gender_distribution': records_df['ptmisexx'].value_counts().to_dict()
         }
-        
+
         # 의학적 유효성 체크
-        ktas_severe = records_df['ktas_fstu'].isin(['1', '2']).sum()
+        ktas_severe = records_df['ptmikts1'].isin(['1', '2']).sum()
         severe_home_discharge = records_df[
-            (records_df['ktas_fstu'].isin(['1', '2'])) & 
-            (records_df['emtrt_rust'] == '11')
+            (records_df['ptmikts1'].isin(['1', '2'])) &
+            (records_df['ptmiemrt'] == '11')
         ].shape[0]
         
         summary['medical_validity'] = {

@@ -61,7 +61,7 @@ class VectorizedPatientGenerator:
             if isinstance(year, int):
                 self.src_table = f"nedis_original.nedis{year}"
             else:
-                self.src_table = "nedis_original.nedis2017"
+                self.src_table = "nedis_original.emihptmi"
         
     def generate_all_patients(self, gen_config: PatientGenerationConfig) -> pd.DataFrame:
         """
@@ -97,7 +97,7 @@ class VectorizedPatientGenerator:
             try:
                 self._hospital_data = self.db.fetch_dataframe("""
                     SELECT 
-                        emorg_cd, 
+                        ptmiemcd, 
                         adr, 
                         hospname, 
                         daily_capacity_mean as capacity_beds,
@@ -123,7 +123,7 @@ class VectorizedPatientGenerator:
                     try:
                         self._hospital_data = self.db.fetch_dataframe(f"""
                             SELECT 
-                                emorg_cd, 
+                                ptmiemcd, 
                                 adr, 
                                 hospname, 
                                 daily_capacity_mean as capacity_beds,
@@ -175,47 +175,47 @@ class VectorizedPatientGenerator:
                 age_sex = key.split('_')
                 if len(age_sex) == 2:
                     rows.append({
-                        'pat_age_gr': age_sex[0],
-                        'pat_sex': age_sex[1],
+                        'ptmibrtd': age_sex[0],
+                        'ptmisexx': age_sex[1],
                         'count': data['count'],
                         'probability': data['probability']
                     })
         elif pattern_type == 'visit_method_patterns':
             for key, value_map in patterns.items():
-                for vst_meth, stats in value_map.items():
+                for ptmiinmn, stats in value_map.items():
                     rows.append({
-                        'pat_age_gr': key,
-                        'vst_meth': vst_meth,
+                        'ptmibrtd': key,
+                        'ptmiinmn': ptmiinmn,
                         'probability': stats['probability']
                     })
         elif pattern_type == 'chief_complaint_patterns':
             for key, value_map in patterns.items():
                 age, sex = key.split('_') if '_' in key else (key, '')
-                for msypt, stats in value_map.items():
+                for ptmimnsy, stats in value_map.items():
                     rows.append({
-                        'pat_age_gr': age,
-                        'pat_sex': sex,
-                        'msypt': msypt,
+                        'ptmibrtd': age,
+                        'ptmisexx': sex,
+                        'ptmimnsy': ptmimnsy,
                         'probability': stats['probability']
                     })
         elif pattern_type == 'department_patterns':
             for key, value_map in patterns.items():
                 age, sex = key.split('_') if '_' in key else (key, '')
-                for main_trt_p, stats in value_map.items():
+                for ptmidept, stats in value_map.items():
                     rows.append({
-                        'pat_age_gr': age,
-                        'pat_sex': sex,
-                        'main_trt_p': main_trt_p,
+                        'ptmibrtd': age,
+                        'ptmisexx': sex,
+                        'ptmidept': ptmidept,
                         'probability': stats['probability']
                     })
         elif pattern_type == 'treatment_result_patterns':
             for key, value_map in patterns.items():
                 ktas, age = key.split('_') if '_' in key else (key, '')
-                for emtrt_rust, stats in value_map.items():
+                for ptmiemrt, stats in value_map.items():
                     rows.append({
-                        'ktas_fstu': ktas,
-                        'pat_age_gr': age,
-                        'emtrt_rust': emtrt_rust,
+                        'ptmikts1': ktas,
+                        'ptmibrtd': age,
+                        'ptmiemrt': ptmiemrt,
                         'probability': stats['probability']
                     })
         
@@ -248,7 +248,7 @@ class VectorizedPatientGenerator:
 
         # 전역 고유 키 재생성 (중복 방지)
         result_df['index_key'] = [f"SYNTH_{i:08d}" for i in range(len(result_df))]
-        result_df['pat_reg_no'] = [f"P{i:08d}" for i in range(len(result_df))]
+        result_df['ptmiidno'] = [f"P{i:08d}" for i in range(len(result_df))]
 
         return result_df
     
@@ -271,29 +271,99 @@ class VectorizedPatientGenerator:
         
         # 모든 속성 합병
         result_df = pd.concat([demographics_df, clinical_attrs, conditional_attrs], axis=1)
-        
+
+        # Stage 5: 결측값 적용 (원본 결측 패턴 재현)
+        result_df = self._apply_missing_values(result_df)
+
         # 고유 키 생성
         result_df['index_key'] = [f"SYNTH_{i:08d}" for i in range(len(result_df))]
-        result_df['pat_reg_no'] = [f"P{i:08d}" for i in range(len(result_df))]
-        
+        result_df['ptmiidno'] = [f"P{i:08d}" for i in range(len(result_df))]
+
         self.logger.info(f"Generated {len(result_df):,} patients successfully")
         return result_df
     
+    def _apply_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
+        """원본 데이터의 구조적 결측 패턴을 재현.
+
+        KTAS·주증상·진료과는 동시 결측(co-missing) 구조를 가지므로,
+        1) 먼저 KTAS 결측 여부를 결정 (primary_missing_rate)
+        2) KTAS 결측 시 주증상·진료과도 함께 결측 처리
+        3) KTAS 유효 시에도 소수의 독립 결측 적용
+        4) 기타 변수(ptmizipc, ptmiemrt 등)는 독립 결측 적용
+        """
+        missing_rates = self._dynamic_patterns.get('missing_value_rates', {})
+        if not missing_rates or 'error' in missing_rates:
+            self.logger.warning("No missing value rate data available; skipping")
+            return df
+
+        corr = missing_rates.get('correlated_group', {})
+        cond = missing_rates.get('conditional', {}).get('given_ktas_valid', {})
+        indep = missing_rates.get('independent', {})
+        n = len(df)
+        rng = np.random.RandomState(hash('missing') % (2**31))
+
+        # --- Ensure string dtype for columns that may receive '-' ---
+        str_cols = ['ptmikts1', 'ptmikpr1', 'ptmimnsy', 'ptmidept',
+                    'ptmizipc', 'ptmiemrt', 'ptmiinmn']
+        for col in str_cols:
+            if col in df.columns and df[col].dtype != object:
+                df[col] = df[col].astype(str)
+
+        # --- Correlated group: KTAS → symptom + department ---
+        primary_rate = corr.get('primary_missing_rate', 0.0)
+        if primary_rate > 0 and 'ptmikts1' in df.columns:
+            mask_primary = rng.random(n) < primary_rate
+            n_primary = mask_primary.sum()
+            self.logger.info(
+                "Applying correlated missing: %d/%d (%.1f%%) records",
+                n_primary, n, n_primary / n * 100,
+            )
+            df.loc[mask_primary, 'ptmikts1'] = '-'
+            if 'ptmikpr1' in df.columns:
+                df.loc[mask_primary, 'ptmikpr1'] = '-'
+            if 'ptmimnsy' in df.columns:
+                df.loc[mask_primary, 'ptmimnsy'] = '-'
+            if 'ptmidept' in df.columns:
+                df.loc[mask_primary, 'ptmidept'] = '-'
+
+            # When KTAS is valid, apply residual independent missing
+            # Only for correlated group members (ptmimnsy, ptmidept)
+            valid_mask = ~mask_primary
+            corr_members = set(corr.get('members', []))
+            for col, rate in cond.items():
+                if col not in corr_members:
+                    continue  # Independent vars handled separately below
+                if rate > 0 and col in df.columns:
+                    residual = rng.random(n) < rate
+                    df.loc[valid_mask & residual, col] = '-'
+
+        # --- Independent variables (not in correlated group) ---
+        # These use the overall independent rate, not conditional
+        indep_only = ['ptmizipc', 'ptmiemrt', 'ptmiinmn']
+        for col in indep_only:
+            rate = indep.get(col, 0.0)
+            if rate > 0 and col in df.columns:
+                mask = rng.random(n) < rate
+                if mask.any():
+                    df.loc[mask, col] = '-'
+
+        return df
+
     def _generate_demographics_vectorized(self, total_records: int) -> pd.DataFrame:
         """동적 패턴을 사용한 인구통계 벡터 생성"""
         self.logger.info("Generating demographics using dynamic patterns")
         
         # 원본 데이터에서 직접 인구통계 분포 추출
         demo_query = """
-            SELECT pat_do_cd, pat_age_gr, pat_sex, 
+            SELECT ptmizipc, ptmibrtd, ptmisexx, 
                    COUNT(*) as count,
                    COUNT(*) * 1.0 / SUM(COUNT(*)) OVER() as probability
             FROM {src}
-            WHERE pat_do_cd IS NOT NULL 
-              AND pat_age_gr IS NOT NULL 
-              AND pat_sex IS NOT NULL
-            GROUP BY pat_do_cd, pat_age_gr, pat_sex
-            ORDER BY pat_do_cd, pat_age_gr, pat_sex
+            WHERE ptmizipc IS NOT NULL 
+              AND ptmibrtd IS NOT NULL 
+              AND ptmisexx IS NOT NULL
+            GROUP BY ptmizipc, ptmibrtd, ptmisexx
+            ORDER BY ptmizipc, ptmibrtd, ptmisexx
         """
         
         demo_dist = self.db.fetch_dataframe(demo_query.format(src=self.src_table))
@@ -310,9 +380,9 @@ class VectorizedPatientGenerator:
             count = demo_counts[i]
             if count > 0:
                 demographics_list.extend([{
-                    'pat_do_cd': row['pat_do_cd'],
-                    'pat_age_gr': row['pat_age_gr'],
-                    'pat_sex': row['pat_sex']
+                    'ptmizipc': row['ptmizipc'],
+                    'ptmibrtd': row['ptmibrtd'],
+                    'ptmisexx': row['ptmisexx']
                 }] * count)
         
         # 셔플링 (랜덤성 증가)
@@ -334,8 +404,8 @@ class VectorizedPatientGenerator:
         hospital_assignments = np.empty(len(demographics_df), dtype='object')
         
         # 지역별로 그룹화하여 병원 선택
-        for region in demographics_df['pat_do_cd'].unique():
-            region_mask = demographics_df['pat_do_cd'] == region
+        for region in demographics_df['ptmizipc'].unique():
+            region_mask = demographics_df['ptmizipc'] == region
             region_indices = np.where(region_mask)[0]
             
             if len(region_indices) == 0:
@@ -410,12 +480,12 @@ class VectorizedPatientGenerator:
             region = hospital['major_region']  # 2자리 지역코드 사용
             if region not in region_hospitals:
                 region_hospitals[region] = []
-            region_hospitals[region].append(hospital['emorg_cd'])
+            region_hospitals[region].append(hospital['ptmiemcd'])
         
         hospital_assignments = np.empty(len(demographics_df), dtype='object')
         
-        for region in demographics_df['pat_do_cd'].unique():
-            region_mask = demographics_df['pat_do_cd'] == region
+        for region in demographics_df['ptmizipc'].unique():
+            region_mask = demographics_df['ptmizipc'] == region
             region_indices = np.where(region_mask)[0]
             
             # 지역에 해당하는 병원들 찾기
@@ -437,7 +507,7 @@ class VectorizedPatientGenerator:
     
     def _assign_random_hospitals(self, indices: np.ndarray) -> np.ndarray:
         """랜덤 병원 할당"""
-        all_hospitals = self._hospital_data['emorg_cd'].tolist()
+        all_hospitals = self._hospital_data['ptmiemcd'].tolist()
         if all_hospitals:
             return np.random.choice(all_hospitals, size=len(indices))
         else:
@@ -445,60 +515,57 @@ class VectorizedPatientGenerator:
             return np.array(['DEFAULT_HOSPITAL'] * len(indices))
     
     def _generate_independent_clinical_attributes(self, demographics_df: pd.DataFrame) -> pd.DataFrame:
-        """독립적 임상 속성 생성 (완전 벡터화)"""
+        """독립적 임상 속성 생성 (내원수단만)"""
         self.logger.info("Generating independent clinical attributes")
-        
+
         result_attrs = {}
-        
-        # 동적 분포 로드
+
         visit_method_dist = self._get_dynamic_distribution('visit_method_patterns')
-        chief_complaint_dist = self._get_dynamic_distribution('chief_complaint_patterns')
-        department_dist = self._get_dynamic_distribution('department_patterns')
 
         # 내원수단 생성
-        result_attrs['vst_meth'] = self._vectorized_attribute_sampling(
-            demographics_df, 
+        result_attrs['ptmiinmn'] = self._vectorized_attribute_sampling(
+            demographics_df,
             visit_method_dist,
-            group_cols=['pat_age_gr'],
-            target_col='vst_meth'
+            group_cols=['ptmibrtd'],
+            target_col='ptmiinmn'
         )
-        
-        # 주증상 생성
-        result_attrs['msypt'] = self._vectorized_attribute_sampling(
-            demographics_df,
-            chief_complaint_dist,
-            group_cols=['pat_age_gr', 'pat_sex'],
-            target_col='msypt'
-        )
-        
-        # 주요치료과 생성
-        result_attrs['main_trt_p'] = self._vectorized_attribute_sampling(
-            demographics_df,
-            department_dist,
-            group_cols=['pat_age_gr', 'pat_sex'],
-            target_col='main_trt_p'
-        )
-        
+
         return pd.DataFrame(result_attrs)
     
-    def _generate_conditional_clinical_attributes(self, demographics_df: pd.DataFrame, 
+    def _generate_conditional_clinical_attributes(self, demographics_df: pd.DataFrame,
                                                  clinical_attrs: pd.DataFrame) -> pd.DataFrame:
-        """조건부 임상 속성 생성 (Semi-벡터화)"""
+        """조건부 임상 속성 생성: KTAS → 주증상 → 진료과 → 치료결과"""
         self.logger.info("Generating conditional clinical attributes")
-        
-        # 기본 데이터 결합
+
         combined_df = pd.concat([demographics_df, clinical_attrs], axis=1)
-        
-        # KTAS 생성 (내원수단 의존)
+
+        # 1. KTAS 생성 (지역/병원유형 의존)
         ktas_values = self._semi_vectorized_ktas_generation(combined_df)
-        
-        # 치료결과 생성 (KTAS 의존)
-        treatment_results = self._semi_vectorized_treatment_result_generation(combined_df, ktas_values)
-        
+
+        # 2. 주증상 생성: P(ptmimnsy | ptmikts1, ptmibrtd, ptmisexx)
+        self.logger.info("Generating chief complaints conditional on KTAS")
+        symptom_values = self._conditional_symptom_generation(
+            combined_df, ktas_values)
+
+        # 3. 진료과 생성: P(ptmidept | ptmikts1, ptmimnsy)
+        self.logger.info("Generating departments conditional on KTAS + symptom")
+        department_values = self._conditional_department_generation(
+            ktas_values, symptom_values)
+
+        # 4. 치료결과 생성 (KTAS 의존)
+        treatment_results = self._semi_vectorized_treatment_result_generation(
+            combined_df, ktas_values)
+
+        # 5. KTAS 프로토콜 코드 생성: 5자리 코드 + 감염코드(1자리) = 6자리
+        kpr1_values = self._generate_ktas_protocol_codes(
+            ktas_values, symptom_values, combined_df['ptmibrtd'].values)
+
         return pd.DataFrame({
-            'ktas_fstu': ktas_values,
-            'ktas01': [int(k) if k.isdigit() else 3 for k in ktas_values],
-            'emtrt_rust': treatment_results
+            'ptmikts1': ktas_values,
+            'ptmikpr1': kpr1_values,
+            'ptmimnsy': symptom_values,
+            'ptmidept': department_values,
+            'ptmiemrt': treatment_results,
         })
     
     def _vectorized_attribute_sampling(self, demographics_df: pd.DataFrame, 
@@ -556,7 +623,7 @@ class VectorizedPatientGenerator:
         combined_df = self._add_hospital_type_info(combined_df)
 
         # 그룹별로 KTAS 배치 샘플링
-        group_cols = ['pat_do_cd', 'hospital_type']
+        group_cols = ['ptmizipc', 'hospital_type']
         for group_values, group_indices in combined_df.groupby(group_cols).groups.items():
             region_code, hospital_type = group_values if isinstance(group_values, tuple) else (group_values, 'medium')
 
@@ -572,7 +639,7 @@ class VectorizedPatientGenerator:
                 results[group_indices] = np.random.choice(ktas_levels, size=len(group_indices), p=probabilities)
             else:
                 # 폴백: 설정에서 기본 KTAS 분포 사용
-                default_map = self.config.get('fallback.distributions', {}).get('ktas_fstu', {'3': 0.3, '4': 0.5, '5': 0.2})
+                default_map = self.config.get('fallback.distributions', {}).get('ptmikts1', {'3': 0.3, '4': 0.5, '5': 0.2})
                 levels = list(default_map.keys())
                 probs = np.array(list(default_map.values()), dtype=float)
                 probs = probs / probs.sum()
@@ -586,7 +653,7 @@ class VectorizedPatientGenerator:
         hospital_type_map = {}
         if self._hospital_data is not None and len(self._hospital_data) > 0:
             for _, hospital in self._hospital_data.iterrows():
-                hospital_type_map[hospital['emorg_cd']] = hospital['hospital_type']
+                hospital_type_map[hospital['ptmiemcd']] = hospital['hospital_type']
         
         # DataFrame에 병원 유형 추가
         df = df.copy()
@@ -598,14 +665,166 @@ class VectorizedPatientGenerator:
         """병원 코드로 병원 유형 조회"""
         if self._hospital_data is None or len(self._hospital_data) == 0:
             return 'medium'
-        hospital_info = self._hospital_data[self._hospital_data['emorg_cd'] == hospital_code]
+        hospital_info = self._hospital_data[self._hospital_data['ptmiemcd'] == hospital_code]
         
         if len(hospital_info) > 0:
             return hospital_info.iloc[0]['hospital_type']
         else:
             return 'medium'  # 기본값
     
-    def _semi_vectorized_treatment_result_generation(self, combined_df: pd.DataFrame, 
+    def _sample_from_pattern(self, pattern_dict: Dict, size: int,
+                            rng: np.random.RandomState) -> np.ndarray:
+        """패턴 딕셔너리에서 확률적 샘플링"""
+        keys = list(pattern_dict.keys())
+        probs = np.array([v['probability'] for v in pattern_dict.values()])
+        probs = probs / probs.sum()
+        return rng.choice(keys, size=size, p=probs)
+
+    def _conditional_symptom_generation(self, combined_df: pd.DataFrame,
+                                        ktas_values: np.ndarray) -> np.ndarray:
+        """KTAS/연령/성별 조건부 주증상 생성.
+
+        계층적 대안: ktas_age_sex → ktas_age → ktas → age_sex
+        """
+        n = len(combined_df)
+        results = np.empty(n, dtype='object')
+        results[:] = ''
+
+        patterns = self._dynamic_patterns.get('chief_complaint_patterns', {}).get('patterns', {})
+        if not patterns:
+            self.logger.warning("No chief complaint patterns; returning empty")
+            return results
+
+        rng = np.random.RandomState(hash('symptom') % (2**31))
+        ages = combined_df['ptmibrtd'].astype(str).values
+        sexes = combined_df['ptmisexx'].astype(str).values
+
+        # Build index per (ktas, age, sex)
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for i in range(n):
+            groups[(ktas_values[i], ages[i], sexes[i])].append(i)
+
+        for (ktas, age, sex), indices in groups.items():
+            idx_arr = np.array(indices)
+            # Hierarchical fallback
+            for key in [f"{ktas}_{age}_{sex}", f"{ktas}_{age}",
+                        f"{ktas}", f"all_{age}_{sex}"]:
+                if key in patterns and len(patterns[key]) > 0:
+                    results[idx_arr] = self._sample_from_pattern(
+                        patterns[key], len(idx_arr), rng)
+                    break
+
+        return results
+
+    def _conditional_department_generation(self, ktas_values: np.ndarray,
+                                           symptom_values: np.ndarray) -> np.ndarray:
+        """KTAS/주증상 조건부 진료과 생성.
+
+        계층적 대안: ktas_symptom → ktas → sym_symptom → all
+        """
+        n = len(ktas_values)
+        results = np.empty(n, dtype='object')
+        results[:] = ''
+
+        patterns = self._dynamic_patterns.get('department_patterns', {}).get('patterns', {})
+        if not patterns:
+            self.logger.warning("No department patterns; returning empty")
+            return results
+
+        rng = np.random.RandomState(hash('department') % (2**31))
+
+        from collections import defaultdict
+        groups = defaultdict(list)
+        for i in range(n):
+            groups[(ktas_values[i], symptom_values[i])].append(i)
+
+        for (ktas, sym), indices in groups.items():
+            idx_arr = np.array(indices)
+            for key in [f"{ktas}_{sym}", f"{ktas}", f"sym_{sym}", "all"]:
+                if key in patterns and len(patterns[key]) > 0:
+                    results[idx_arr] = self._sample_from_pattern(
+                        patterns[key], len(idx_arr), rng)
+                    break
+
+        return results
+
+    # KTAS 대분류: 주증상(UMLS) → 대분류 코드 매핑
+    # 실제 KTAS 프로토콜에 기반한 신체계통별 분류
+    _SYMPTOM_MAJOR_CLASS = {
+        # 심혈관계 (1)
+        'C0008031': '1', 'C0235710': '1', 'C0030252': '1',
+        'C0039231': '1', 'C0018790': '1', 'C0020538': '1',
+        'C0020649': '1', 'C0036572': '1',
+        # 신경계 (2)
+        'C0018681': '2', 'C0012833': '2', 'C0233407': '2',
+        'C0237477': '2', 'C0421619': '2', 'C0036917': '2',
+        'C0242429': '2', 'C0151827': '2',
+        # 소화기계 (3)
+        'C0000737': '3', 'C0027497': '3', 'C0042963': '3',
+        'C0011991': '3', 'C0232493': '3',
+        # 호흡기계 (4)
+        'C0013404': '4', 'C0004093': '4', 'C0239589': '4',
+        'C0010200': '4', 'C0231528': '4',
+        # 근골격/외상 (5)
+        'C0015967': '5', 'C0016512': '5', 'C0238656': '5',
+        'C0023222': '5', 'C0231749': '5', 'C0007859': '5',
+        # 비뇨생식계 (6)
+        'C0042109': '6', 'C0232849': '6', 'C0404555': '6',
+        # 안/이비인후 (7)
+        'C0015230': '7', 'C0008035': '7', 'C0432981': '7',
+        # 피부/알레르기 (8)
+        'C0004604': '8', 'C0039070': '8', 'C0037404': '8',
+        'C0278286': '8', 'C0024031': '8',
+    }
+
+    def _generate_ktas_protocol_codes(self, ktas_values: np.ndarray,
+                                       symptom_values: np.ndarray,
+                                       age_values: np.ndarray) -> np.ndarray:
+        """KTAS 프로토콜 코드 합성 생성.
+
+        구조: [연령구분 1자리][대분류 1자리][중분류 1자리][소분류 2자리][감염코드 1자리] = 6자리
+          - 연령구분: A(≥15세) / P(<15세) — 연령군 코드로 판단
+          - 대분류: 주증상 기반 신체계통 매핑
+          - 중분류+소분류: 해시 기반 결정론적 생성
+          - 감염코드: 0(비감염) 90%, 1(감염) 5%, 9(미상) 5%
+        """
+        n = len(ktas_values)
+        results = np.empty(n, dtype='object')
+        rng = np.random.RandomState(hash('ktas_protocol') % (2**31))
+
+        # 소아 연령군 코드들 (15세 미만)
+        child_age_codes = {'01', '09', '10'}
+
+        for i in range(n):
+            ktas = ktas_values[i]
+            if not str(ktas).isdigit():
+                results[i] = '-'
+                continue
+
+            # 1단계: 연령구분
+            age_code = str(age_values[i])
+            cd1 = 'P' if age_code in child_age_codes else 'A'
+
+            # 2단계: 대분류 (주증상 → 신체계통)
+            sym = str(symptom_values[i])
+            cd2 = self._SYMPTOM_MAJOR_CLASS.get(sym, str(rng.randint(1, 10)))
+
+            # 3단계: 중분류 (주증상 해시 기반)
+            cd3 = str((hash(sym) % 9) + 1)
+
+            # 4단계: 소분류 (주증상+KTAS 해시 기반)
+            cd4 = f"{((hash(sym + ktas) % 20) + 1):02d}"
+
+            # 감염코드
+            r = rng.random()
+            infection = '0' if r < 0.90 else ('1' if r < 0.95 else '9')
+
+            results[i] = f"{cd1}{cd2}{cd3}{cd4}{infection}"
+
+        return results
+
+    def _semi_vectorized_treatment_result_generation(self, combined_df: pd.DataFrame,
                                                    ktas_values: np.ndarray) -> np.ndarray:
         """Semi-벡터화 치료결과 생성 (동적 분포 기반)"""
         results = np.empty(len(combined_df), dtype='object')
@@ -621,28 +840,28 @@ class VectorizedPatientGenerator:
                 continue
 
             ktas_patients_df = combined_df.iloc[ktas_indices]
-            for age_group in ktas_patients_df['pat_age_gr'].unique():
-                age_mask = ktas_patients_df['pat_age_gr'] == age_group
+            for age_group in ktas_patients_df['ptmibrtd'].unique():
+                age_mask = ktas_patients_df['ptmibrtd'] == age_group
                 final_indices = ktas_indices[age_mask]
                 if len(final_indices) == 0:
                     continue
 
                 # 조건부 확률 분포
                 condition_df = tr_dist.query(
-                    f"ktas_fstu == '{ktas_level}' & pat_age_gr == '{age_group}'"
+                    f"ptmikts1 == '{ktas_level}' & ptmibrtd == '{age_group}'"
                 )
                 if len(condition_df) > 0:
                     probs = condition_df['probability'].values.astype(float)
                     probs = probs / probs.sum()
                     chosen_results = np.random.choice(
-                        condition_df['emtrt_rust'].values,
+                        condition_df['ptmiemrt'].values,
                         size=len(final_indices),
                         p=probs
                     )
                     results[final_indices] = chosen_results
                 else:
                     # 설정 기반 폴백 분포 (KTAS별)
-                    fallback = self.config.get('fallback.distributions', {}).get('emtrt_rust_by_ktas', {})
+                    fallback = self.config.get('fallback.distributions', {}).get('ptmiemrt_by_ktas', {})
                     default_map = fallback.get(ktas_level, {})
                     if isinstance(default_map, dict) and len(default_map) > 0:
                         keys = list(default_map.keys())

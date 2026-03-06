@@ -52,10 +52,10 @@ def migrate_sample_data(source_db: str, target_db: str):
         
         # 타겟에 삽입 (DuckDB register 방식 사용)
         target_conn.register("source_data", source_data)
-        target_conn.execute("INSERT INTO nedis_original.nedis2017 SELECT * FROM source_data")
+        target_conn.execute("INSERT INTO nedis_original.emihptmi SELECT * FROM source_data")
         
         # 검증
-        target_count = target_conn.execute("SELECT COUNT(*) FROM nedis_original.nedis2017").fetchone()[0]
+        target_count = target_conn.execute("SELECT COUNT(*) FROM nedis_original.emihptmi").fetchone()[0]
         logger.info(f"Migrated nedis2017 records: {target_count:,}")
         
         # 3. 진단 테이블 복사
@@ -89,12 +89,12 @@ def validate_migration(db_path: str) -> bool:
         db = DatabaseManager(db_path)
         
         # 원본 데이터 테이블 확인
-        if not db.table_exists("nedis_original.nedis2017"):
-            logger.error("nedis_original.nedis2017 table not found")
+        if not db.table_exists("nedis_original.emihptmi"):
+            logger.error("nedis_original.emihptmi table not found")
             return False
             
         # 레코드 수 확인
-        main_count = db.get_table_count("nedis_original.nedis2017")
+        main_count = db.get_table_count("nedis_original.emihptmi")
         diag_er_count = db.get_table_count("nedis_original.diag_er")
         diag_adm_count = db.get_table_count("nedis_original.diag_adm")
         
@@ -105,12 +105,12 @@ def validate_migration(db_path: str) -> bool:
         
         # 기본 품질 체크
         sample_query = """
-        SELECT 
+        SELECT
             COUNT(*) as total,
-            COUNT(DISTINCT pat_do_cd) as unique_regions,
-            COUNT(DISTINCT emorg_cd) as unique_hospitals,
-            COUNT(DISTINCT pat_age_gr) as unique_age_groups
-        FROM nedis_original.nedis2017
+            COUNT(DISTINCT ptmizipc) as unique_regions,
+            COUNT(DISTINCT ptmiemcd) as unique_hospitals,
+            COUNT(DISTINCT ptmibrtd) as unique_age_groups
+        FROM nedis_original.emihptmi
         """
         
         quality_check = db.fetch_dataframe(sample_query).iloc[0]
@@ -185,7 +185,11 @@ def main():
     
     # 3. 추가 설정
     db = DatabaseManager(target_db)
-    
+
+    # NEDIS 4.0 VIEW 생성
+    db.create_nedis4_view()
+    logger.info("Created NEDIS 4.0 view (nedis_original.emihptmi)")
+
     # 진행 상황 추적 초기화
     initialize_progress_tracking(db)
     

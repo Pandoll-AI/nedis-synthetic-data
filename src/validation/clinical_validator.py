@@ -51,7 +51,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "AD001",
                     "description": "영아 심혈관 질환 배제",
-                    "condition": "pat_age_gr IN ('01', '09') AND diagnosis_code LIKE 'I%'",
+                    "condition": "ptmibrtd IN ('01', '09') AND diagnosis_code LIKE 'I%'",
                     "severity": "error",
                     "expected_rate": 0.0,
                     "max_tolerance": 0.001
@@ -59,7 +59,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "AD002", 
                     "description": "소아 퇴행성 질환 배제",
-                    "condition": "pat_age_gr IN ('01', '09', '10') AND diagnosis_code IN ('M15%', 'M16%', 'M17%')",
+                    "condition": "ptmibrtd IN ('01', '09', '10') AND diagnosis_code IN ('M15%', 'M16%', 'M17%')",
                     "severity": "error",
                     "expected_rate": 0.0,
                     "max_tolerance": 0.001
@@ -67,7 +67,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "AD003",
                     "description": "고령자 선천성 질환 낮은 빈도",
-                    "condition": "pat_age_gr IN ('70', '80', '90') AND diagnosis_code LIKE 'Q%'",
+                    "condition": "ptmibrtd IN ('70', '80', '90') AND diagnosis_code LIKE 'Q%'",
                     "severity": "warning",
                     "expected_rate": 0.01,
                     "max_tolerance": 0.05
@@ -78,7 +78,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "GD001",
                     "description": "남성 임신 관련 진단 배제",
-                    "condition": "pat_sex = 'M' AND diagnosis_code LIKE 'O%'",
+                    "condition": "ptmisexx = '1' AND diagnosis_code LIKE 'O%'",
                     "severity": "error",
                     "expected_rate": 0.0,
                     "max_tolerance": 0.0
@@ -86,7 +86,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "GD002",
                     "description": "남성 부인과 질환 배제",
-                    "condition": "pat_sex = 'M' AND diagnosis_code LIKE 'N8%'",
+                    "condition": "ptmisexx = '1' AND diagnosis_code LIKE 'N8%'",
                     "severity": "error", 
                     "expected_rate": 0.0,
                     "max_tolerance": 0.0
@@ -94,7 +94,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "GD003",
                     "description": "여성 전립선 질환 배제",
-                    "condition": "pat_sex = 'F' AND diagnosis_code LIKE 'N4%'",
+                    "condition": "ptmisexx = '2' AND diagnosis_code LIKE 'N4%'",
                     "severity": "error",
                     "expected_rate": 0.0,
                     "max_tolerance": 0.0
@@ -105,7 +105,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "KO001",
                     "description": "KTAS 1급 귀가율 제한",
-                    "condition": "ktas_fstu = '1' AND emtrt_rust = '11'",
+                    "condition": "ptmikts1 = '1' AND ptmiemrt = '11'",
                     "severity": "warning",
                     "expected_rate": 0.05,
                     "max_tolerance": 0.15
@@ -113,7 +113,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "KO002",
                     "description": "KTAS 5급 중환자실 입원 제한",
-                    "condition": "ktas_fstu = '5' AND emtrt_rust = '32'",
+                    "condition": "ptmikts1 = '5' AND ptmiemrt = '32'",
                     "severity": "warning",
                     "expected_rate": 0.01,
                     "max_tolerance": 0.05
@@ -121,7 +121,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "KO003",
                     "description": "KTAS 1급 사망률 범위",
-                    "condition": "ktas_fstu = '1' AND emtrt_rust = '41'",
+                    "condition": "ptmikts1 = '1' AND ptmiemrt = '41'",
                     "severity": "warning",
                     "expected_rate": 0.15,
                     "max_tolerance": 0.25
@@ -132,7 +132,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "TC001",
                     "description": "방문시간 < 퇴실시간",
-                    "condition": "vst_dt||vst_tm >= otrm_dt||otrm_tm",
+                    "condition": "ptmiindt||ptmiintm >= ptmiotdt||ptmiottm",
                     "severity": "error",
                     "expected_rate": 0.0,
                     "max_tolerance": 0.001
@@ -140,7 +140,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "TC002",
                     "description": "과도한 응급실 체류 제한",
-                    "condition": "DATEDIFF('minute', vst_dt||vst_tm, otrm_dt||otrm_tm) > 1440",  # 24시간
+                    "condition": "DATEDIFF('minute', ptmiindt||ptmiintm, ptmiotdt||ptmiottm) > 1440",  # 24시간
                     "severity": "warning",
                     "expected_rate": 0.02,
                     "max_tolerance": 0.10
@@ -148,7 +148,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "TC003",
                     "description": "퇴실시간 < 입원시간",
-                    "condition": "emtrt_rust IN ('31', '32') AND otrm_dt||otrm_tm >= inpat_dt||inpat_tm",
+                    "condition": "ptmiemrt IN ('31', '32') AND ptmiotdt||ptmiottm >= ptmihsdt||ptmihstm",
                     "severity": "error",
                     "expected_rate": 0.0,
                     "max_tolerance": 0.001
@@ -159,7 +159,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "VS001",
                     "description": "수축기혈압 의학적 범위",
-                    "condition": "vst_sbp < 60 OR vst_sbp > 250",
+                    "condition": "ptmihibp < 60 OR ptmihibp > 250",
                     "severity": "warning",
                     "expected_rate": 0.02,
                     "max_tolerance": 0.10
@@ -167,7 +167,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "VS002",
                     "description": "맥박수 의학적 범위",
-                    "condition": "vst_per_pu < 30 OR vst_per_pu > 200",
+                    "condition": "ptmipuls < 30 OR ptmipuls > 200",
                     "severity": "warning",
                     "expected_rate": 0.01,
                     "max_tolerance": 0.05
@@ -175,7 +175,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "VS003",
                     "description": "체온 의학적 범위",
-                    "condition": "vst_bdht < 32.0 OR vst_bdht > 42.0",
+                    "condition": "ptmibdht < 32.0 OR ptmibdht > 42.0",
                     "severity": "warning", 
                     "expected_rate": 0.005,
                     "max_tolerance": 0.02
@@ -183,7 +183,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "VS004",
                     "description": "산소포화도 의학적 범위",
-                    "condition": "vst_oxy < 70 OR vst_oxy > 100",
+                    "condition": "ptmivoxs < 70 OR ptmivoxs > 100",
                     "severity": "warning",
                     "expected_rate": 0.01,
                     "max_tolerance": 0.05
@@ -194,7 +194,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "DT001",
                     "description": "심장 질환 - 내과 치료과 연관성",
-                    "condition": "diagnosis_code LIKE 'I2%' AND main_trt_p NOT IN ('01', '02')",  # 응급의학과, 내과
+                    "condition": "diagnosis_code LIKE 'I2%' AND ptmidept NOT IN ('01', '02')",  # 응급의학과, 내과
                     "severity": "info",
                     "expected_rate": 0.20,
                     "max_tolerance": 0.50
@@ -202,7 +202,7 @@ class ClinicalRuleValidator:
                 {
                     "rule_id": "DT002",
                     "description": "외상 - 외과 치료과 연관성",
-                    "condition": "diagnosis_code LIKE 'S%' AND main_trt_p NOT IN ('01', '03')",  # 응급의학과, 외과
+                    "condition": "diagnosis_code LIKE 'S%' AND ptmidept NOT IN ('01', '03')",  # 응급의학과, 외과
                     "severity": "info",
                     "expected_rate": 0.30,
                     "max_tolerance": 0.60
@@ -316,13 +316,13 @@ class ClinicalRuleValidator:
                 sample_data.loc[sample_data["diagnosis_code"].isna(), "diagnosis_code"] = fallback_codes
 
             # -1 값들을 NaN으로 변환
-            vital_columns = ['vst_sbp', 'vst_dbp', 'vst_per_pu', 'vst_per_br', 'vst_oxy']
+            vital_columns = ['ptmihibp', 'ptmilobp', 'ptmipuls', 'ptmibrth', 'ptmivoxs']
             for col in vital_columns:
                 if col in sample_data.columns:
                     sample_data[col] = sample_data[col].replace(-1, np.nan)
             
-            if 'vst_bdht' in sample_data.columns:
-                sample_data['vst_bdht'] = sample_data['vst_bdht'].replace(-1.0, np.nan)
+            if 'ptmibdht' in sample_data.columns:
+                sample_data['ptmibdht'] = sample_data['ptmibdht'].replace(-1.0, np.nan)
             
             self.logger.info(f"Loaded clinical sample: {len(sample_data)} records")
             return sample_data
@@ -343,17 +343,17 @@ class ClinicalRuleValidator:
 
     def _infer_fallback_diagnosis_code(self, row: pd.Series) -> str:
         """임상 데이터가 부족한 경우 임시 진단 코드를 생성."""
-        ktas = str(row.get("ktas_fstu", "")).strip()
+        ktas = str(row.get("ptmikts1", "")).strip()
         if not ktas or ktas == "nan":
             ktas = "3"
 
-        age_group = str(row.get("pat_age_gr", "")).strip()
+        age_group = str(row.get("ptmibrtd", "")).strip()
         # 영유아 및 성별 호환성 규칙을 피하기 위해 안전 코드군을 우선 사용
         if age_group in {"01", "09", "10"}:
             return "J20"
-        if str(row.get("pat_sex", "")).upper() == "F":
+        if str(row.get("ptmisexx", "")).strip() == "2":
             return "J20"
-        if str(row.get("pat_sex", "")).upper() == "M" and ktas in {"1", "2", "3"}:
+        if str(row.get("ptmisexx", "")).strip() == "1" and ktas in {"1", "2", "3"}:
             return "R06"
         return "J20"
     
@@ -458,70 +458,70 @@ class ClinicalRuleValidator:
             if not condition:
                 return None
             # 연령-진단 비호환성
-            if "pat_age_gr in ('01', '09') and diagnosis_code like 'i%'" in condition:
-                return (data['pat_age_gr'].isin(['01', '09'])) & (data['diagnosis_code'].str.startswith('I', na=False))
+            if "ptmibrtd in ('01', '09') and diagnosis_code like 'i%'" in condition:
+                return (data['ptmibrtd'].isin(['01', '09'])) & (data['diagnosis_code'].str.startswith('I', na=False))
             
             # 성별-진단 비호환성
-            elif "pat_sex = 'm' and diagnosis_code like 'o%'" in condition:
-                return (data['pat_sex'] == 'M') & (data['diagnosis_code'].str.startswith('O', na=False))
+            elif "ptmisexx = '1' and diagnosis_code like 'o%'" in condition:
+                return (data['ptmisexx'] == '1') & (data['diagnosis_code'].str.startswith('O', na=False))
             
-            elif "pat_sex = 'm' and diagnosis_code like 'n8%'" in condition:
-                return (data['pat_sex'] == 'M') & (data['diagnosis_code'].str.startswith('N8', na=False))
+            elif "ptmisexx = '1' and diagnosis_code like 'n8%'" in condition:
+                return (data['ptmisexx'] == '1') & (data['diagnosis_code'].str.startswith('N8', na=False))
             
-            elif "pat_sex = 'f' and diagnosis_code like 'n4%'" in condition:
-                return (data['pat_sex'] == 'F') & (data['diagnosis_code'].str.startswith('N4', na=False))
+            elif "ptmisexx = '2' and diagnosis_code like 'n4%'" in condition:
+                return (data['ptmisexx'] == '2') & (data['diagnosis_code'].str.startswith('N4', na=False))
             
             # KTAS-치료결과 일관성
-            elif "ktas_fstu = '1' and emtrt_rust = '11'" in condition:
-                return (data['ktas_fstu'] == '1') & (data['emtrt_rust'] == '11')
+            elif "ptmikts1 = '1' and ptmiemrt = '11'" in condition:
+                return (data['ptmikts1'] == '1') & (data['ptmiemrt'] == '11')
             
-            elif "ktas_fstu = '5' and emtrt_rust = '32'" in condition:
-                return (data['ktas_fstu'] == '5') & (data['emtrt_rust'] == '32')
+            elif "ptmikts1 = '5' and ptmiemrt = '32'" in condition:
+                return (data['ptmikts1'] == '5') & (data['ptmiemrt'] == '32')
             
-            elif "ktas_fstu = '1' and emtrt_rust = '41'" in condition:
-                return (data['ktas_fstu'] == '1') & (data['emtrt_rust'] == '41')
+            elif "ptmikts1 = '1' and ptmiemrt = '41'" in condition:
+                return (data['ptmikts1'] == '1') & (data['ptmiemrt'] == '41')
             
             # 생체징후 범위
-            elif "vst_sbp < 60 or vst_sbp > 250" in condition:
-                return (data['vst_sbp'] < 60) | (data['vst_sbp'] > 250)
+            elif "ptmihibp < 60 or ptmihibp > 250" in condition:
+                return (data['ptmihibp'] < 60) | (data['ptmihibp'] > 250)
             
-            elif "vst_per_pu < 30 or vst_per_pu > 200" in condition:
-                return (data['vst_per_pu'] < 30) | (data['vst_per_pu'] > 200)
+            elif "ptmipuls < 30 or ptmipuls > 200" in condition:
+                return (data['ptmipuls'] < 30) | (data['ptmipuls'] > 200)
             
-            elif "vst_bdht < 32.0 or vst_bdht > 42.0" in condition:
-                return (data['vst_bdht'] < 32.0) | (data['vst_bdht'] > 42.0)
+            elif "ptmibdht < 32.0 or ptmibdht > 42.0" in condition:
+                return (data['ptmibdht'] < 32.0) | (data['ptmibdht'] > 42.0)
             
-            elif "vst_oxy < 70 or vst_oxy > 100" in condition:
-                return (data['vst_oxy'] < 70) | (data['vst_oxy'] > 100)
+            elif "ptmivoxs < 70 or ptmivoxs > 100" in condition:
+                return (data['ptmivoxs'] < 70) | (data['ptmivoxs'] > 100)
             
             # 진단-치료과 일관성 규칙
-            elif "diagnosis_code like 'i2%' and main_trt_p not in ('01', '02')" in condition:
+            elif "diagnosis_code like 'i2%' and ptmidept not in ('01', '02')" in condition:
                 return (
                     data['diagnosis_code'].str.startswith('I2', na=False) &
-                    ~data['main_trt_p'].astype(str).isin(['01', '02'])
+                    ~data['ptmidept'].astype(str).isin(['01', '02'])
                 )
             
-            elif "diagnosis_code like 's%' and main_trt_p not in ('01', '03')" in condition:
+            elif "diagnosis_code like 's%' and ptmidept not in ('01', '03')" in condition:
                 return (
                     data['diagnosis_code'].str.startswith('S', na=False) &
-                    ~data['main_trt_p'].astype(str).isin(['01', '03'])
+                    ~data['ptmidept'].astype(str).isin(['01', '03'])
                 )
 
-            elif "vst_dt||vst_tm >= otrm_dt||otrm_tm" in condition:
-                vst_dt = self._datetime_from_columns(data, "vst")
-                otrm_dt = self._datetime_from_columns(data, "otrm")
+            elif "ptmiindt||ptmiintm >= ptmiotdt||ptmiottm" in condition:
+                vst_dt = self._datetime_from_columns(data, "ptmiindt", "ptmiintm")
+                otrm_dt = self._datetime_from_columns(data, "ptmiotdt", "ptmiottm")
                 return vst_dt >= otrm_dt
 
-            elif "datediff('minute', vst_dt||vst_tm, otrm_dt||otrm_tm) > 1440" in condition:
-                vst_dt = self._datetime_from_columns(data, "vst")
-                otrm_dt = self._datetime_from_columns(data, "otrm")
+            elif "datediff('minute', ptmiindt||ptmiintm, ptmiotdt||ptmiottm) > 1440" in condition:
+                vst_dt = self._datetime_from_columns(data, "ptmiindt", "ptmiintm")
+                otrm_dt = self._datetime_from_columns(data, "ptmiotdt", "ptmiottm")
                 gap_minutes = (otrm_dt - vst_dt).dt.total_seconds() / 60
                 return gap_minutes > 1440
 
-            elif "otrm_dt||otrm_tm >= inpat_dt||inpat_tm" in condition:
-                inpat_dt = self._datetime_from_columns(data, "inpat")
-                otrm_dt = self._datetime_from_columns(data, "otrm")
-                inpat_mask = data['emtrt_rust'].astype(str).isin(['31', '32', '33', '34'])
+            elif "ptmiotdt||ptmiottm >= ptmihsdt||ptmihstm" in condition:
+                inpat_dt = self._datetime_from_columns(data, "ptmihsdt", "ptmihstm")
+                otrm_dt = self._datetime_from_columns(data, "ptmiotdt", "ptmiottm")
+                inpat_mask = data['ptmiemrt'].astype(str).isin(['31', '32', '33', '34'])
                 return inpat_mask & (otrm_dt >= inpat_dt)
             
             # 복잡한 조건은 None 반환 (SQL로 처리)
@@ -556,10 +556,16 @@ class ClinicalRuleValidator:
             except Exception:
                 pass
 
-    def _datetime_from_columns(self, data: pd.DataFrame, prefix: str) -> pd.Series:
-        """Combine *_dt and *_tm columns into pandas datetime."""
-        date_col = f"{prefix}_dt"
-        time_col = f"{prefix}_tm"
+    def _datetime_from_columns(self, data: pd.DataFrame, date_col: str, time_col: str = "") -> pd.Series:
+        """Combine date and time columns into pandas datetime.
+
+        Args:
+            data: DataFrame
+            date_col: Date column name (e.g. 'ptmiindt')
+            time_col: Time column name (e.g. 'ptmiintm'). If empty, derived by replacing trailing 'dt' with 'tm'.
+        """
+        if not time_col:
+            time_col = date_col[:-2] + "tm" if date_col.endswith("dt") else date_col + "_tm"
         if date_col not in data.columns or time_col not in data.columns:
             return pd.to_datetime([pd.NA] * len(data))
 

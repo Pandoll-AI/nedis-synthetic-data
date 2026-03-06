@@ -81,7 +81,24 @@ def extract_regional_patterns(data_hash: str) -> dict:
     return result
 
 
-def extract_hospital_allocation(data_hash: str) -> dict:
+def build_hospital_code_map(data_hash: str) -> dict:
+    """실제 병원코드를 수집하여 결정적 익명 매핑(H0001, H0002, ...)을 생성."""
+    raw = load_pkl("hospital_allocation", data_hash)
+    all_codes = set()
+    for val in raw["patterns"].values():
+        hospitals = val.get("hospitals", {})
+        all_codes.update(hospitals.keys())
+    if "hierarchical_fallback" in raw:
+        for val in raw["hierarchical_fallback"].values():
+            hospitals = val.get("hospitals", {})
+            all_codes.update(hospitals.keys())
+    sorted_codes = sorted(all_codes)
+    code_map = {code: f"H{i + 1:04d}" for i, code in enumerate(sorted_codes)}
+    print(f"  Hospital code anonymization: {len(code_map)} codes mapped (H0001 ~ H{len(code_map):04d})")
+    return code_map
+
+
+def extract_hospital_allocation(data_hash: str, code_map: dict) -> dict:
     raw = load_pkl("hospital_allocation", data_hash)
     result = {"patterns": {}, "hierarchical_fallback": {}}
 
@@ -89,14 +106,14 @@ def extract_hospital_allocation(data_hash: str) -> dict:
         hospitals = val.get("hospitals", {})
         prob_map = {h: info["probability"] for h, info in hospitals.items()}
         filtered = filter_and_renormalize(prob_map, PROB_THRESHOLD)
-        result["patterns"][region] = filtered
+        result["patterns"][region] = {code_map.get(k, k): v for k, v in filtered.items()}
 
     if "hierarchical_fallback" in raw:
         for region, val in raw["hierarchical_fallback"].items():
             hospitals = val.get("hospitals", {})
             prob_map = {h: info["probability"] for h, info in hospitals.items()}
             filtered = filter_and_renormalize(prob_map, PROB_THRESHOLD)
-            result["hierarchical_fallback"][region] = filtered
+            result["hierarchical_fallback"][region] = {code_map.get(k, k): v for k, v in filtered.items()}
 
     return result
 
@@ -229,8 +246,9 @@ def main():
     print("[2/10] Extracting regional_patterns...")
     regional = extract_regional_patterns(data_hash)
 
-    print("[3/10] Extracting hospital_allocation...")
-    hospital = extract_hospital_allocation(data_hash)
+    print("[3/10] Extracting hospital_allocation (with anonymization)...")
+    code_map = build_hospital_code_map(data_hash)
+    hospital = extract_hospital_allocation(data_hash, code_map)
 
     print("[4/10] Extracting ktas_distributions...")
     ktas = extract_ktas_distributions(data_hash)

@@ -67,14 +67,14 @@ class TimeGapValidationReport:
         
         query = f"""
         SELECT 
-            ktas01, emtrt_rust,
-            vst_dt, vst_tm,
-            otrm_dt, otrm_tm,
-            inpat_dt, inpat_tm
-        FROM nedis2017
-        WHERE ktas01 IS NOT NULL 
-            AND ktas01 >= 1 AND ktas01 <= 5
-            AND vst_dt IS NOT NULL
+            ptmikpr1, ptmiemrt,
+            ptmiindt, ptmiintm,
+            ptmiotdt, ptmiottm,
+            ptmihsdt, ptmihstm
+        FROM nedis_original.emihptmi
+        WHERE ptmikpr1 IS NOT NULL 
+            AND ptmikpr1 >= 1 AND ptmikpr1 <= 5
+            AND ptmiindt IS NOT NULL
         LIMIT {sample_size}
         """
         
@@ -82,13 +82,13 @@ class TimeGapValidationReport:
         
         # Parse datetimes
         df['vst_datetime'] = df.apply(
-            lambda x: self._parse_datetime(x['vst_dt'], x['vst_tm']), axis=1
+            lambda x: self._parse_datetime(x['ptmiindt'], x['ptmiintm']), axis=1
         )
         df['otrm_datetime'] = df.apply(
-            lambda x: self._parse_datetime(x['otrm_dt'], x['otrm_tm']), axis=1
+            lambda x: self._parse_datetime(x['ptmiotdt'], x['ptmiottm']), axis=1
         )
         df['inpat_datetime'] = df.apply(
-            lambda x: self._parse_datetime(x['inpat_dt'], x['inpat_tm']), axis=1
+            lambda x: self._parse_datetime(x['ptmihsdt'], x['ptmihstm']), axis=1
         )
         
         # Calculate time gaps
@@ -158,8 +158,8 @@ class TimeGapValidationReport:
         
         # Generate using synthesizer
         synthetic_gaps = self.synthesizer.generate_time_gaps(
-            ktas_levels=original_df['ktas01'].values,
-            treatment_results=original_df['emtrt_rust'].values,
+            ktas_levels=original_df['ptmikpr1'].values,
+            treatment_results=original_df['ptmiemrt'].values,
             visit_datetimes=original_df['vst_datetime']
         )
         
@@ -193,7 +193,7 @@ class TimeGapValidationReport:
         
         # Validate by KTAS level
         for ktas in range(1, 6):
-            ktas_mask = original_df['ktas01'] == ktas
+            ktas_mask = original_df['ptmikpr1'] == ktas
             
             # ER stay validation
             orig_er = original_df.loc[ktas_mask, 'er_stay'].dropna()
@@ -216,7 +216,7 @@ class TimeGapValidationReport:
                 }
                 
                 # Admission time validation (if applicable)
-                admit_mask = ktas_mask & original_df['emtrt_rust'].isin(['31', '32', '33', '34'])
+                admit_mask = ktas_mask & original_df['ptmiemrt'].isin(['31', '32', '33', '34'])
                 orig_admit = original_df.loc[admit_mask, 'admit_time'].dropna()
                 synth_admit = synthetic_df.loc[admit_mask, 'synthetic_admit_time'].dropna()
                 
@@ -291,7 +291,7 @@ class TimeGapValidationReport:
         for i, ktas in enumerate(range(1, 6)):
             ax = axes[i // 3, i % 3]
             
-            ktas_mask = original_df['ktas01'] == ktas
+            ktas_mask = original_df['ptmikpr1'] == ktas
             orig_er = original_df.loc[ktas_mask, 'er_stay'].dropna()
             synth_er = synthetic_df.loc[ktas_mask, 'synthetic_er_stay'].dropna()
             
@@ -326,7 +326,7 @@ class TimeGapValidationReport:
         labels = []
         
         for ktas in range(1, 6):
-            ktas_mask = original_df['ktas01'] == ktas
+            ktas_mask = original_df['ptmikpr1'] == ktas
             
             orig_er = original_df.loc[ktas_mask, 'er_stay'].dropna()
             if len(orig_er) > 0:
@@ -357,7 +357,7 @@ class TimeGapValidationReport:
         synth_means = []
         
         for ktas in ktas_levels:
-            ktas_mask = original_df['ktas01'] == ktas
+            ktas_mask = original_df['ptmikpr1'] == ktas
             orig_er = original_df.loc[ktas_mask, 'er_stay'].dropna()
             synth_er = synthetic_df.loc[ktas_mask, 'synthetic_er_stay'].dropna()
             
@@ -393,7 +393,7 @@ class TimeGapValidationReport:
         for i, ktas in enumerate(range(1, 6)):
             ax = axes[i // 3, i % 3]
             
-            ktas_mask = original_df['ktas01'] == ktas
+            ktas_mask = original_df['ptmikpr1'] == ktas
             orig_er = original_df.loc[ktas_mask, 'er_stay'].dropna()
             synth_er = synthetic_df.loc[ktas_mask, 'synthetic_er_stay'].dropna()
             
@@ -818,11 +818,17 @@ The system achieves a **{validation['overall_metrics']['quality_score']:.1f}% qu
 
 def main():
     """Generate validation report"""
+    import argparse
+    parser = argparse.ArgumentParser(description='Time Gap Validation Report')
+    parser.add_argument('--database', default='nedis_data.duckdb')
+    parser.add_argument('--sample-size', type=int, default=5000)
+    args = parser.parse_args()
+
     logger.info("Starting Time Gap Validation Report Generation...")
-    
-    report_generator = TimeGapValidationReport()
-    report_generator.generate_full_report(sample_size=5000)
-    
+
+    report_generator = TimeGapValidationReport(db_path=args.database)
+    report_generator.generate_full_report(sample_size=args.sample_size)
+
     logger.info("Report generation complete! Check outputs/validation_report/")
 
 if __name__ == "__main__":

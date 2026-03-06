@@ -57,6 +57,8 @@ def run_vectorized_pipeline(args) -> bool:
             logger.info("Attached source database as alias: %s", attached_alias)
 
         source_table = _resolve_source_table(db, config, args.year, attached_alias)
+        # If the resolved table uses old column names, create a NEDIS 4.0 VIEW
+        source_table = _ensure_nedis4_view(db, source_table)
         config.set('original.source_table', source_table)
         logger.info("Resolved source table: %s", source_table)
 
@@ -115,17 +117,17 @@ def run_vectorized_pipeline(args) -> bool:
         # 4) comprehensive time-gap synthesis using vst_* assigned above
         gap_synth = ComprehensiveTimeGapSynthesizer(db, config)
         base_visit_ts = _build_base_visit_timestamps(
-            patients['vst_dt'], patients['vst_tm']
+            patients['ptmiindt'], patients['ptmiintm']
         )
-        if 'ktas_fstu' in patients.columns:
-            ktas_values = patients['ktas_fstu']
-        elif 'ktas01' in patients.columns:
-            ktas_values = patients['ktas01']
+        if 'ptmikts1' in patients.columns:
+            ktas_values = patients['ptmikts1']
+        elif 'ptmikpr1' in patients.columns:
+            ktas_values = patients['ptmikpr1']
         else:
             ktas_values = pd.Series(['3'] * len(patients), index=patients.index)
 
-        if 'emtrt_rust' in patients.columns:
-            emtrt_values = patients['emtrt_rust']
+        if 'ptmiemrt' in patients.columns:
+            emtrt_values = patients['ptmiemrt']
         else:
             emtrt_values = pd.Series(['11'] * len(patients), index=patients.index)
 
@@ -269,6 +271,7 @@ def _resolve_source_table(
     if source_alias:
         candidates.extend(
             [
+                f"{source_alias}.emihptmi",
                 f"{source_alias}.nedis{year}",
                 f"{source_alias}.nedis2017",
             ]
@@ -276,11 +279,13 @@ def _resolve_source_table(
 
     candidates.extend(
         [
+            "nedis_original.emihptmi",
             f"nedis_original.nedis{year}",
-            "nedis_original.nedis2017",
             f"nedis_data.nedis{year}",
+            "nedis_data.emihptmi",
             "nedis_data.nedis2017",
             f"main.nedis{year}",
+            "main.emihptmi",
             "main.nedis2017",
         ]
     )
@@ -290,6 +295,29 @@ def _resolve_source_table(
             return candidate
 
     raise RuntimeError("No source table found. Tried: " + ", ".join(candidates))
+
+
+def _ensure_nedis4_view(db: DatabaseManager, source_table: str) -> str:
+    """If source table uses old column names, create a NEDIS 4.0 VIEW and return the view name."""
+    # Check if the table already has NEDIS 4.0 columns
+    try:
+        db.execute_query(f"SELECT ptmiemcd FROM {source_table} LIMIT 1")
+        return source_table  # Already has NEDIS 4.0 columns
+    except Exception:
+        pass
+
+    # Table uses old column names — create a VIEW
+    from src.core.nedis4_converter import create_source_view_sql
+    view_name = "nedis4_view"
+    view_sql = create_source_view_sql(source_table, view_name)
+    try:
+        db.execute_query(f"DROP VIEW IF EXISTS {view_name}")
+        db.execute_query(view_sql)
+        logger.info("Created NEDIS 4.0 VIEW '%s' over '%s'", view_name, source_table)
+        return view_name
+    except Exception as e:
+        logger.warning("Failed to create NEDIS 4.0 VIEW: %s. Using source table as-is.", e)
+        return source_table
 
 
 def _resolve_total_records(db: DatabaseManager, source_table: str, args) -> int:
@@ -307,9 +335,9 @@ def _ensure_target_table(db: DatabaseManager) -> None:
     ClinicalDAGGenerator(db, ConfigManager()).initialize_clinical_records_table()
 
 
-def _build_base_visit_timestamps(vst_dt: pd.Series, vst_tm: pd.Series) -> pd.Series:
-    dt = pd.Series(vst_dt).astype(str).str.strip()
-    tm = pd.Series(vst_tm).astype(str).str.zfill(4).str.slice(0, 4)
+def _build_base_visit_timestamps(ptmiindt: pd.Series, ptmiintm: pd.Series) -> pd.Series:
+    dt = pd.Series(ptmiindt).astype(str).str.strip()
+    tm = pd.Series(ptmiintm).astype(str).str.zfill(4).str.slice(0, 4)
     return pd.to_datetime(dt + tm, format='%Y%m%d%H%M', errors='coerce')
 
 
@@ -328,24 +356,24 @@ def _normalize_for_insert(
     if 'index_key' in table_columns:
         result['index_key'] = [f"SYNTH_{i:09d}" for i in range(n)]
 
-    if 'pat_reg_no' in table_columns:
-        result['pat_reg_no'] = [f"P{i:09d}" for i in range(n)]
+    if 'ptmiidno' in table_columns:
+        result['ptmiidno'] = [f"P{i:09d}" for i in range(n)]
 
-    if 'emorg_cd' in table_columns and 'emorg_cd' not in result.columns:
-        result['emorg_cd'] = 'UNKNOWN'
+    if 'ptmiemcd' in table_columns and 'ptmiemcd' not in result.columns:
+        result['ptmiemcd'] = 'UNKNOWN'
 
-    if 'vst_tm' in result.columns:
-        result['vst_tm'] = result['vst_tm'].astype(str).str.zfill(4).str[:4]
+    if 'ptmiintm' in result.columns:
+        result['ptmiintm'] = result['ptmiintm'].astype(str).str.zfill(4).str[:4]
 
-    required_for_insert = ['vst_dt', 'vst_tm', 'pat_age_gr', 'pat_sex', 'pat_do_cd']
+    required_for_insert = ['ptmiindt', 'ptmiintm', 'ptmibrtd', 'ptmisexx', 'ptmizipc']
     for col in required_for_insert:
         if col not in result.columns:
-            result[col] = '' if col != 'vst_dt' else '20170101'
-            if col == 'vst_tm':
+            result[col] = '' if col != 'ptmiindt' else '20170101'
+            if col == 'ptmiintm':
                 result[col] = '0000'
 
-    if 'ktas01' in table_columns and 'ktas01' not in result.columns:
-        result['ktas01'] = pd.to_numeric(result.get('ktas_fstu', '3'), errors='coerce').fillna(3).astype(int)
+    if 'ptmikpr1' in table_columns and 'ptmikpr1' not in result.columns:
+        result['ptmikpr1'] = pd.to_numeric(result.get('ptmikts1', '3'), errors='coerce').fillna(3).astype(int)
 
     if 'generation_timestamp' in table_columns and 'generation_timestamp' not in result.columns:
         result['generation_timestamp'] = pd.Timestamp.utcnow()
@@ -378,12 +406,12 @@ def _normalize_vital_columns(
 
     target = df.copy()
     vital_specs: Dict[str, Dict[str, Any]] = {
-        "vst_sbp": {"min": 60, "max": 250, "dtype": "int", "fallback": (125, 18)},
-        "vst_dbp": {"min": 30, "max": 130, "dtype": "int", "fallback": (80, 15)},
-        "vst_per_pu": {"min": 30, "max": 220, "dtype": "int", "fallback": (78, 20)},
-        "vst_per_br": {"min": 8, "max": 80, "dtype": "int", "fallback": (74, 16)},
-        "vst_bdht": {"min": 34.0, "max": 44.0, "dtype": "float", "fallback": (36.6, 0.7)},
-        "vst_oxy": {"min": 70, "max": 100, "dtype": "int", "fallback": (97.5, 2.0)},
+        "ptmihibp": {"min": 60, "max": 250, "dtype": "int", "fallback": (125, 18)},
+        "ptmilobp": {"min": 30, "max": 130, "dtype": "int", "fallback": (80, 15)},
+        "ptmipuls": {"min": 30, "max": 220, "dtype": "int", "fallback": (78, 20)},
+        "ptmibrth": {"min": 8, "max": 80, "dtype": "int", "fallback": (74, 16)},
+        "ptmibdht": {"min": 34.0, "max": 44.0, "dtype": "float", "fallback": (36.6, 0.7)},
+        "ptmivoxs": {"min": 70, "max": 100, "dtype": "int", "fallback": (97.5, 2.0)},
     }
 
     vital_reference = _load_vital_reference_profiles(db, source_table, list(vital_specs))
@@ -443,17 +471,17 @@ def _load_vital_reference_profiles(db: DatabaseManager, source_table: Optional[s
 
         clean = pd.to_numeric(sample[col], errors="coerce")
         clean = clean.replace([999, 999.0, -1, -1.0], np.nan)
-        if col == "vst_sbp":
+        if col == "ptmihibp":
             min_v, max_v = 60, 250
-        elif col == "vst_dbp":
+        elif col == "ptmilobp":
             min_v, max_v = 30, 130
-        elif col == "vst_per_pu":
+        elif col == "ptmipuls":
             min_v, max_v = 30, 220
-        elif col == "vst_per_br":
+        elif col == "ptmibrth":
             min_v, max_v = 8, 80
-        elif col == "vst_bdht":
+        elif col == "ptmibdht":
             min_v, max_v = 34.0, 44.0
-        elif col == "vst_oxy":
+        elif col == "ptmivoxs":
             min_v, max_v = 70, 100
         else:
             min_v, max_v = -1_000, 1_000
@@ -536,7 +564,7 @@ def _upsert_minimal_diag_er(db: DatabaseManager, patients: pd.DataFrame, clean: 
     if len(patients) == 0:
         return 0
 
-    safe_patients = patients.reset_index(drop=True)[["index_key", "ktas_fstu", "pat_age_gr", "pat_sex"]].copy()
+    safe_patients = patients.reset_index(drop=True)[["index_key", "ptmikts1", "ptmibrtd", "ptmisexx"]].copy()
     safe_patients["position"] = 1
     safe_patients["diagnosis_code"] = safe_patients.apply(
         lambda row: _fallback_diagnosis_code(row),
@@ -565,14 +593,14 @@ def _upsert_minimal_diag_er(db: DatabaseManager, patients: pd.DataFrame, clean: 
 
 def _fallback_diagnosis_code(row: pd.Series) -> str:
     """Generate a safe diagnosis code compatible with current clinical constraints."""
-    age_group = str(row.get("pat_age_gr", "")).strip()
-    ktas = str(row.get("ktas_fstu", "3")).strip()
+    age_group = str(row.get("ptmibrtd", "")).strip()
+    ktas = str(row.get("ptmikts1", "3")).strip()
 
     if age_group in {"01", "09", "10"}:
         return "J20"
-    if str(row.get("pat_sex", "")).upper() == "F":
+    if str(row.get("ptmisexx", "")) == "2":
         return "J20"
-    if str(row.get("pat_sex", "")).upper() == "M" and ktas in {"1", "2"}:
+    if str(row.get("ptmisexx", "")) == "1" and ktas in {"1", "2"}:
         return "R06"
     return "J20"
 

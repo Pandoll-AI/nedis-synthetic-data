@@ -56,47 +56,47 @@ class ComparativeAnalyzer:
         try:
             # 연령 분포
             age_query = """
-            SELECT 
-                CASE 
-                    WHEN pat_age_gr IS NULL OR pat_age_gr = '' THEN '미분류'
-                    ELSE pat_age_gr 
+            SELECT
+                CASE
+                    WHEN ptmibrtd IS NULL OR ptmibrtd = '' THEN '미분류'
+                    ELSE ptmibrtd
                 END as age_group,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_original.nedis2017 
-            GROUP BY pat_age_gr
+            FROM nedis_original.emihptmi
+            GROUP BY ptmibrtd
             ORDER BY count DESC
             """
             age_df = self.conn.execute(age_query).fetchdf()
-            
+
             # 성별 분포
             sex_query = """
-            SELECT 
-                CASE 
-                    WHEN pat_sex_cd IS NULL OR pat_sex_cd = '' THEN '미분류'
-                    WHEN pat_sex_cd = 'M' THEN '남성'
-                    WHEN pat_sex_cd = 'F' THEN '여성'
+            SELECT
+                CASE
+                    WHEN ptmisexx IS NULL OR ptmisexx = '' THEN '미분류'
+                    WHEN ptmisexx = '1' THEN '남성'
+                    WHEN ptmisexx = '2' THEN '여성'
                     ELSE '미분류'
                 END as sex,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_original.nedis2017 
-            GROUP BY pat_sex_cd
+            FROM nedis_original.emihptmi
+            GROUP BY ptmisexx
             ORDER BY count DESC
             """
             sex_df = self.conn.execute(sex_query).fetchdf()
-            
+
             # 지역 분포
             region_query = """
-            SELECT 
-                CASE 
-                    WHEN pat_do_cd IS NULL OR pat_do_cd = '' THEN '미분류'
-                    ELSE pat_do_cd 
+            SELECT
+                CASE
+                    WHEN ptmizipc IS NULL OR ptmizipc = '' THEN '미분류'
+                    ELSE ptmizipc
                 END as region_code,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_original.nedis2017 
-            GROUP BY pat_do_cd
+            FROM nedis_original.emihptmi
+            GROUP BY ptmizipc
             ORDER BY count DESC
             LIMIT 20
             """
@@ -117,47 +117,47 @@ class ComparativeAnalyzer:
         try:
             # 연령 분포
             age_query = """
-            SELECT 
-                CASE 
-                    WHEN pat_age_gr IS NULL OR pat_age_gr = '' THEN '미분류'
-                    ELSE pat_age_gr 
+            SELECT
+                CASE
+                    WHEN ptmibrtd IS NULL OR ptmibrtd = '' THEN '미분류'
+                    ELSE ptmibrtd
                 END as age_group,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_synthetic.clinical_records 
-            GROUP BY pat_age_gr
+            FROM nedis_synthetic.clinical_records
+            GROUP BY ptmibrtd
             ORDER BY count DESC
             """
             age_df = self.conn.execute(age_query).fetchdf()
-            
+
             # 성별 분포
             sex_query = """
-            SELECT 
-                CASE 
-                    WHEN pat_sex IS NULL OR pat_sex = '' THEN '미분류'
-                    WHEN pat_sex = 'M' THEN '남성'
-                    WHEN pat_sex = 'F' THEN '여성'
+            SELECT
+                CASE
+                    WHEN ptmisexx IS NULL OR ptmisexx = '' THEN '미분류'
+                    WHEN ptmisexx = '1' THEN '남성'
+                    WHEN ptmisexx = '2' THEN '여성'
                     ELSE '미분류'
                 END as sex,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_synthetic.clinical_records 
-            GROUP BY pat_sex
+            FROM nedis_synthetic.clinical_records
+            GROUP BY ptmisexx
             ORDER BY count DESC
             """
             sex_df = self.conn.execute(sex_query).fetchdf()
-            
+
             # 지역 분포
             region_query = """
-            SELECT 
-                CASE 
-                    WHEN pat_do_cd IS NULL OR pat_do_cd = '' THEN '미분류'
-                    ELSE pat_do_cd 
+            SELECT
+                CASE
+                    WHEN ptmizipc IS NULL OR ptmizipc = '' THEN '미분류'
+                    ELSE ptmizipc
                 END as region_code,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_synthetic.clinical_records 
-            GROUP BY pat_do_cd
+            FROM nedis_synthetic.clinical_records
+            GROUP BY ptmizipc
             ORDER BY count DESC
             LIMIT 20
             """
@@ -176,22 +176,22 @@ class ComparativeAnalyzer:
     def get_original_clinical_patterns(self) -> Dict[str, Any]:
         """원본 데이터의 임상 패턴 가져오기"""
         try:
-            # KTAS 분포 - 올바른 ktas_fstu 컬럼 사용
+            # KTAS 분포 - 올바른 ptmikts1 컬럼 사용
             ktas_query = """
-            SELECT 
-                CASE 
-                    WHEN ktas_fstu IS NULL OR ktas_fstu = '' OR ktas_fstu = '-' THEN '미분류'
-                    WHEN ktas_fstu = '1' THEN '1단계 (소생)'
-                    WHEN ktas_fstu = '2' THEN '2단계 (응급)'
-                    WHEN ktas_fstu = '3' THEN '3단계 (긴급)'
-                    WHEN ktas_fstu = '4' THEN '4단계 (준긴급)'
-                    WHEN ktas_fstu = '5' THEN '5단계 (비긴급)'
+            SELECT
+                CASE
+                    WHEN ptmikts1 IS NULL OR ptmikts1 = '' OR ptmikts1 = '-' THEN '미분류'
+                    WHEN ptmikts1 = '1' THEN '1단계 (소생)'
+                    WHEN ptmikts1 = '2' THEN '2단계 (응급)'
+                    WHEN ptmikts1 = '3' THEN '3단계 (긴급)'
+                    WHEN ptmikts1 = '4' THEN '4단계 (준긴급)'
+                    WHEN ptmikts1 = '5' THEN '5단계 (비긴급)'
                     ELSE '기타'
                 END as ktas_level,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_original.nedis2017 
-            GROUP BY ktas_fstu
+            FROM nedis_original.emihptmi
+            GROUP BY ptmikts1
             ORDER BY count DESC
             """
             ktas_df = self.conn.execute(ktas_query).fetchdf()
@@ -209,20 +209,20 @@ class ComparativeAnalyzer:
         try:
             # KTAS 분포
             ktas_query = """
-            SELECT 
-                CASE 
-                    WHEN ktas_fstu IS NULL OR ktas_fstu = '' OR ktas_fstu = '-' THEN '미분류'
-                    WHEN ktas_fstu = '1' THEN '1단계 (소생)'
-                    WHEN ktas_fstu = '2' THEN '2단계 (응급)'
-                    WHEN ktas_fstu = '3' THEN '3단계 (긴급)'
-                    WHEN ktas_fstu = '4' THEN '4단계 (준긴급)'
-                    WHEN ktas_fstu = '5' THEN '5단계 (비긴급)'
+            SELECT
+                CASE
+                    WHEN ptmikts1 IS NULL OR ptmikts1 = '' OR ptmikts1 = '-' THEN '미분류'
+                    WHEN ptmikts1 = '1' THEN '1단계 (소생)'
+                    WHEN ptmikts1 = '2' THEN '2단계 (응급)'
+                    WHEN ptmikts1 = '3' THEN '3단계 (긴급)'
+                    WHEN ptmikts1 = '4' THEN '4단계 (준긴급)'
+                    WHEN ptmikts1 = '5' THEN '5단계 (비긴급)'
                     ELSE '기타'
                 END as ktas_level,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_synthetic.clinical_records 
-            GROUP BY ktas_fstu
+            FROM nedis_synthetic.clinical_records
+            GROUP BY ptmikts1
             ORDER BY count DESC
             """
             ktas_df = self.conn.execute(ktas_query).fetchdf()
@@ -240,22 +240,22 @@ class ComparativeAnalyzer:
         try:
             # 월별 분포
             monthly_query = """
-            SELECT 
-                CAST(SUBSTRING(vst_dt, 5, 2) AS INTEGER) as month,
+            SELECT
+                CAST(SUBSTRING(ptmiindt, 5, 2) AS INTEGER) as month,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_original.nedis2017 
-            WHERE vst_dt IS NOT NULL AND LENGTH(vst_dt) = 8
-            GROUP BY CAST(SUBSTRING(vst_dt, 5, 2) AS INTEGER)
+            FROM nedis_original.emihptmi
+            WHERE ptmiindt IS NOT NULL AND LENGTH(ptmiindt) = 8
+            GROUP BY CAST(SUBSTRING(ptmiindt, 5, 2) AS INTEGER)
             ORDER BY month
             """
             monthly_df = self.conn.execute(monthly_query).fetchdf()
-            
-            # 요일별 분포  
+
+            # 요일별 분포
             weekday_query = """
-            SELECT 
-                DAYOFWEEK(STRPTIME(vst_dt, '%Y%m%d')) as weekday,
-                CASE DAYOFWEEK(STRPTIME(vst_dt, '%Y%m%d'))
+            SELECT
+                DAYOFWEEK(STRPTIME(ptmiindt, '%Y%m%d')) as weekday,
+                CASE DAYOFWEEK(STRPTIME(ptmiindt, '%Y%m%d'))
                     WHEN 1 THEN '일요일'
                     WHEN 2 THEN '월요일'
                     WHEN 3 THEN '화요일'
@@ -266,9 +266,9 @@ class ComparativeAnalyzer:
                 END as weekday_name,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_original.nedis2017 
-            WHERE vst_dt IS NOT NULL AND LENGTH(vst_dt) = 8
-            GROUP BY DAYOFWEEK(STRPTIME(vst_dt, '%Y%m%d'))
+            FROM nedis_original.emihptmi
+            WHERE ptmiindt IS NOT NULL AND LENGTH(ptmiindt) = 8
+            GROUP BY DAYOFWEEK(STRPTIME(ptmiindt, '%Y%m%d'))
             ORDER BY weekday
             """
             weekday_df = self.conn.execute(weekday_query).fetchdf()
@@ -287,22 +287,22 @@ class ComparativeAnalyzer:
         try:
             # 월별 분포
             monthly_query = """
-            SELECT 
-                CAST(SUBSTRING(vst_dt, 5, 2) AS INTEGER) as month,
+            SELECT
+                CAST(SUBSTRING(ptmiindt, 5, 2) AS INTEGER) as month,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_synthetic.clinical_records 
-            WHERE vst_dt IS NOT NULL AND LENGTH(vst_dt) = 8
-            GROUP BY CAST(SUBSTRING(vst_dt, 5, 2) AS INTEGER)
+            FROM nedis_synthetic.clinical_records
+            WHERE ptmiindt IS NOT NULL AND LENGTH(ptmiindt) = 8
+            GROUP BY CAST(SUBSTRING(ptmiindt, 5, 2) AS INTEGER)
             ORDER BY month
             """
             monthly_df = self.conn.execute(monthly_query).fetchdf()
-            
+
             # 요일별 분포
             weekday_query = """
-            SELECT 
-                DAYOFWEEK(STRPTIME(vst_dt, '%Y%m%d')) as weekday,
-                CASE DAYOFWEEK(STRPTIME(vst_dt, '%Y%m%d'))
+            SELECT
+                DAYOFWEEK(STRPTIME(ptmiindt, '%Y%m%d')) as weekday,
+                CASE DAYOFWEEK(STRPTIME(ptmiindt, '%Y%m%d'))
                     WHEN 1 THEN '일요일'
                     WHEN 2 THEN '월요일'
                     WHEN 3 THEN '화요일'
@@ -313,9 +313,9 @@ class ComparativeAnalyzer:
                 END as weekday_name,
                 COUNT(*) as count,
                 ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
-            FROM nedis_synthetic.clinical_records 
-            WHERE vst_dt IS NOT NULL AND LENGTH(vst_dt) = 8
-            GROUP BY DAYOFWEEK(STRPTIME(vst_dt, '%Y%m%d'))
+            FROM nedis_synthetic.clinical_records
+            WHERE ptmiindt IS NOT NULL AND LENGTH(ptmiindt) = 8
+            GROUP BY DAYOFWEEK(STRPTIME(ptmiindt, '%Y%m%d'))
             ORDER BY weekday
             """
             weekday_df = self.conn.execute(weekday_query).fetchdf()
@@ -405,15 +405,15 @@ class ComparativeAnalyzer:
             )
             
             # 데이터 범위 정보 수집
-            orig_date_range = self.conn.execute("SELECT MIN(vst_dt) as min_date, MAX(vst_dt) as max_date, COUNT(DISTINCT vst_dt) as unique_dates FROM nedis_original.nedis2017 WHERE vst_dt IS NOT NULL").fetchone()
-            synth_date_range = self.conn.execute("SELECT MIN(vst_dt) as min_date, MAX(vst_dt) as max_date, COUNT(DISTINCT vst_dt) as unique_dates FROM nedis_synthetic.clinical_records WHERE vst_dt IS NOT NULL").fetchone()
+            orig_date_range = self.conn.execute("SELECT MIN(ptmiindt) as min_date, MAX(ptmiindt) as max_date, COUNT(DISTINCT ptmiindt) as unique_dates FROM nedis_original.emihptmi WHERE ptmiindt IS NOT NULL").fetchone()
+            synth_date_range = self.conn.execute("SELECT MIN(ptmiindt) as min_date, MAX(ptmiindt) as max_date, COUNT(DISTINCT ptmiindt) as unique_dates FROM nedis_synthetic.clinical_records WHERE ptmiindt IS NOT NULL").fetchone()
             
             # 결과 조합
             results = {
                 "metadata": {
                     "analysis_date": datetime.now().isoformat(),
                     "database": self.db_path,
-                    "original_record_count": self.conn.execute("SELECT COUNT(*) FROM nedis_original.nedis2017").fetchone()[0],
+                    "original_record_count": self.conn.execute("SELECT COUNT(*) FROM nedis_original.emihptmi").fetchone()[0],
                     "synthetic_record_count": self.conn.execute("SELECT COUNT(*) FROM nedis_synthetic.clinical_records").fetchone()[0],
                     "original_date_range": {
                         "min_date": orig_date_range[0],

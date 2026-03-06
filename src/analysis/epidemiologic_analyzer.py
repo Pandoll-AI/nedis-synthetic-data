@@ -152,24 +152,24 @@ class EpidemiologicAnalyzer:
         age_query = """
         SELECT 
             CASE 
-                WHEN pat_age_gr = '01' THEN '0-9세'
-                WHEN pat_age_gr = '09' THEN '10-19세'
-                WHEN pat_age_gr = '10' THEN '20-29세'
-                WHEN pat_age_gr = '20' THEN '30-39세'
-                WHEN pat_age_gr = '30' THEN '40-49세'
-                WHEN pat_age_gr = '40' THEN '50-59세'
-                WHEN pat_age_gr = '50' THEN '60-69세'
-                WHEN pat_age_gr = '60' THEN '70-79세'
-                WHEN pat_age_gr = '70' THEN '80-89세'
-                WHEN pat_age_gr = '80' THEN '90세 이상'
+                WHEN ptmibrtd = '01' THEN '0-9세'
+                WHEN ptmibrtd = '09' THEN '10-19세'
+                WHEN ptmibrtd = '10' THEN '20-29세'
+                WHEN ptmibrtd = '20' THEN '30-39세'
+                WHEN ptmibrtd = '30' THEN '40-49세'
+                WHEN ptmibrtd = '40' THEN '50-59세'
+                WHEN ptmibrtd = '50' THEN '60-69세'
+                WHEN ptmibrtd = '60' THEN '70-79세'
+                WHEN ptmibrtd = '70' THEN '80-89세'
+                WHEN ptmibrtd = '80' THEN '90세 이상'
                 ELSE '미분류'
             END as age_group,
             COUNT(*) as count,
             ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as percentage
-        FROM nedis2017 
-        WHERE pat_age_gr IS NOT NULL
-        GROUP BY pat_age_gr
-        ORDER BY pat_age_gr
+        FROM emihptmi 
+        WHERE ptmibrtd IS NOT NULL
+        GROUP BY ptmibrtd
+        ORDER BY ptmibrtd
         """
         
         sample_age = self.sample_conn.execute(age_query).fetchdf()
@@ -181,15 +181,15 @@ class EpidemiologicAnalyzer:
         sex_query = """
         SELECT 
             CASE 
-                WHEN pat_sex_cd = 'M' THEN '남성'
-                WHEN pat_sex_cd = 'F' THEN '여성'
+                WHEN ptmisexx = '1' THEN '남성'
+                WHEN ptmisexx = '2' THEN '여성'
                 ELSE '미분류'
             END as sex,
             COUNT(*) as count,
             ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as percentage
-        FROM nedis2017 
-        WHERE pat_sex_cd IS NOT NULL
-        GROUP BY pat_sex_cd
+        FROM emihptmi
+        WHERE ptmisexx IS NOT NULL
+        GROUP BY ptmisexx
         """
         
         sample_sex = self.sample_conn.execute(sex_query).fetchdf()
@@ -200,12 +200,12 @@ class EpidemiologicAnalyzer:
         # 지역별 분포 분석
         region_query = """
         SELECT 
-            pat_do_cd as region_code,
+            ptmizipc as region_code,
             COUNT(*) as count,
             ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as percentage
-        FROM nedis2017 
-        WHERE pat_do_cd IS NOT NULL
-        GROUP BY pat_do_cd
+        FROM emihptmi 
+        WHERE ptmizipc IS NOT NULL
+        GROUP BY ptmizipc
         ORDER BY count DESC
         LIMIT 20
         """
@@ -226,13 +226,13 @@ class EpidemiologicAnalyzer:
         # KTAS 중증도 분포
         ktas_query = """
         SELECT 
-            ktas_no,
+            ptmikts1,
             COUNT(*) as count,
             ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as percentage
-        FROM nedis2017 
-        WHERE ktas_no IS NOT NULL AND ktas_no != ''
-        GROUP BY ktas_no
-        ORDER BY ktas_no
+        FROM emihptmi 
+        WHERE ptmikts1 IS NOT NULL AND ptmikts1 != ''
+        GROUP BY ptmikts1
+        ORDER BY ptmikts1
         """
         
         sample_ktas = self.sample_conn.execute(ktas_query).fetchdf()
@@ -244,24 +244,24 @@ class EpidemiologicAnalyzer:
         age_ktas_query = """
         SELECT 
             CASE 
-                WHEN pat_age_gr = '01' THEN '0-9세'
-                WHEN pat_age_gr = '09' THEN '10-19세'
-                WHEN pat_age_gr = '10' THEN '20-29세'
-                WHEN pat_age_gr = '20' THEN '30-39세'
-                WHEN pat_age_gr = '30' THEN '40-49세'
-                WHEN pat_age_gr = '40' THEN '50-59세'
-                WHEN pat_age_gr = '50' THEN '60-69세'
-                WHEN pat_age_gr = '60' THEN '70-79세'
-                WHEN pat_age_gr = '70' THEN '80-89세'
-                WHEN pat_age_gr = '80' THEN '90세 이상'
+                WHEN ptmibrtd = '01' THEN '0-9세'
+                WHEN ptmibrtd = '09' THEN '10-19세'
+                WHEN ptmibrtd = '10' THEN '20-29세'
+                WHEN ptmibrtd = '20' THEN '30-39세'
+                WHEN ptmibrtd = '30' THEN '40-49세'
+                WHEN ptmibrtd = '40' THEN '50-59세'
+                WHEN ptmibrtd = '50' THEN '60-69세'
+                WHEN ptmibrtd = '60' THEN '70-79세'
+                WHEN ptmibrtd = '70' THEN '80-89세'
+                WHEN ptmibrtd = '80' THEN '90세 이상'
                 ELSE '미분류'
             END as age_group,
-            ktas_no,
+            ptmikts1,
             COUNT(*) as count
-        FROM nedis2017 
-        WHERE pat_age_gr IS NOT NULL AND ktas_no IS NOT NULL AND ktas_no != ''
-        GROUP BY pat_age_gr, ktas_no
-        ORDER BY pat_age_gr, ktas_no
+        FROM emihptmi 
+        WHERE ptmibrtd IS NOT NULL AND ptmikts1 IS NOT NULL AND ptmikts1 != ''
+        GROUP BY ptmibrtd, ptmikts1
+        ORDER BY ptmibrtd, ptmikts1
         """
         
         sample_age_ktas = self.sample_conn.execute(age_ktas_query).fetchdf()
@@ -273,16 +273,16 @@ class EpidemiologicAnalyzer:
         sex_ktas_query = """
         SELECT 
             CASE 
-                WHEN pat_sex_cd = 'M' THEN '남성'
-                WHEN pat_sex_cd = 'F' THEN '여성'
+                WHEN ptmisexx = '1' THEN '남성'
+                WHEN ptmisexx = '2' THEN '여성'
                 ELSE '미분류'
             END as sex,
-            ktas_no,
+            ptmikts1,
             COUNT(*) as count
-        FROM nedis2017 
-        WHERE pat_sex_cd IS NOT NULL AND ktas_no IS NOT NULL AND ktas_no != ''
-        GROUP BY pat_sex_cd, ktas_no
-        ORDER BY pat_sex_cd, ktas_no
+        FROM emihptmi
+        WHERE ptmisexx IS NOT NULL AND ptmikts1 IS NOT NULL AND ptmikts1 != ''
+        GROUP BY ptmisexx, ptmikts1
+        ORDER BY ptmisexx, ptmikts1
         """
         
         sample_sex_ktas = self.sample_conn.execute(sex_ktas_query).fetchdf()
@@ -301,12 +301,12 @@ class EpidemiologicAnalyzer:
         # 월별 방문 패턴
         monthly_query = """
         SELECT 
-            CAST(SUBSTR(vst_dt, 5, 2) AS INTEGER) as month,
+            CAST(SUBSTR(ptmiindt, 5, 2) AS INTEGER) as month,
             COUNT(*) as count,
             ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as percentage
-        FROM nedis2017 
-        WHERE vst_dt IS NOT NULL AND LENGTH(vst_dt) >= 6
-        GROUP BY SUBSTR(vst_dt, 5, 2)
+        FROM emihptmi 
+        WHERE ptmiindt IS NOT NULL AND LENGTH(ptmiindt) >= 6
+        GROUP BY SUBSTR(ptmiindt, 5, 2)
         ORDER BY month
         """
         
@@ -319,14 +319,14 @@ class EpidemiologicAnalyzer:
         weekday_query = """
         WITH date_parse AS (
             SELECT 
-                vst_dt,
-                TRY_CAST(vst_dt AS DATE) as visit_date,
+                ptmiindt,
+                TRY_CAST(ptmiindt AS DATE) as visit_date,
                 COUNT(*) as count
-            FROM nedis2017 
-            WHERE vst_dt IS NOT NULL 
-                AND LENGTH(vst_dt) = 8
-                AND vst_dt LIKE '2017%'
-            GROUP BY vst_dt
+            FROM emihptmi 
+            WHERE ptmiindt IS NOT NULL 
+                AND LENGTH(ptmiindt) = 8
+                AND ptmiindt LIKE '2017%'
+            GROUP BY ptmiindt
         )
         SELECT 
             DAYOFWEEK(visit_date) as dow,
@@ -355,14 +355,14 @@ class EpidemiologicAnalyzer:
         # 시간별 방문 패턴
         hourly_query = """
         SELECT 
-            CAST(SUBSTR(vst_tm, 1, 2) AS INTEGER) as hour,
+            CAST(SUBSTR(ptmiintm, 1, 2) AS INTEGER) as hour,
             COUNT(*) as count,
             ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 2) as percentage
-        FROM nedis2017 
-        WHERE vst_tm IS NOT NULL 
-            AND LENGTH(vst_tm) >= 2
-            AND CAST(SUBSTR(vst_tm, 1, 2) AS INTEGER) BETWEEN 0 AND 23
-        GROUP BY SUBSTR(vst_tm, 1, 2)
+        FROM emihptmi 
+        WHERE ptmiintm IS NOT NULL 
+            AND LENGTH(ptmiintm) >= 2
+            AND CAST(SUBSTR(ptmiintm, 1, 2) AS INTEGER) BETWEEN 0 AND 23
+        GROUP BY SUBSTR(ptmiintm, 1, 2)
         ORDER BY hour
         """
         
@@ -383,17 +383,17 @@ class EpidemiologicAnalyzer:
         vitals_query = """
         SELECT 
             COUNT(*) as total_records,
-            COUNT(vst_sbp) as sbp_records,
-            COUNT(vst_dbp) as dbp_records,
-            COUNT(vst_per_pu) as pulse_records,
-            COUNT(vst_per_br) as respiration_records,
-            COUNT(vst_oxy) as oxygen_records,
-            AVG(CASE WHEN vst_sbp > 0 AND vst_sbp < 300 THEN vst_sbp END) as avg_sbp,
-            AVG(CASE WHEN vst_dbp > 0 AND vst_dbp < 200 THEN vst_dbp END) as avg_dbp,
-            AVG(CASE WHEN vst_per_pu > 0 AND vst_per_pu < 200 THEN vst_per_pu END) as avg_pulse,
-            AVG(CASE WHEN vst_per_br > 0 AND vst_per_br < 60 THEN vst_per_br END) as avg_respiration,
-            AVG(CASE WHEN vst_oxy > 0 AND vst_oxy <= 100 THEN vst_oxy END) as avg_oxygen
-        FROM nedis2017
+            COUNT(ptmihibp) as sbp_records,
+            COUNT(ptmilobp) as dbp_records,
+            COUNT(ptmipuls) as pulse_records,
+            COUNT(ptmibrth) as respiration_records,
+            COUNT(ptmivoxs) as oxygen_records,
+            AVG(CASE WHEN ptmihibp > 0 AND ptmihibp < 300 THEN ptmihibp END) as avg_sbp,
+            AVG(CASE WHEN ptmilobp > 0 AND ptmilobp < 200 THEN ptmilobp END) as avg_dbp,
+            AVG(CASE WHEN ptmipuls > 0 AND ptmipuls < 200 THEN ptmipuls END) as avg_pulse,
+            AVG(CASE WHEN ptmibrth > 0 AND ptmibrth < 60 THEN ptmibrth END) as avg_respiration,
+            AVG(CASE WHEN ptmivoxs > 0 AND ptmivoxs <= 100 THEN ptmivoxs END) as avg_oxygen
+        FROM emihptmi
         """
         
         sample_vitals = self.sample_conn.execute(vitals_query).fetchdf()
@@ -404,16 +404,16 @@ class EpidemiologicAnalyzer:
         # 중증도별 생체징후 패턴
         ktas_vitals_query = """
         SELECT 
-            ktas_no,
+            ptmikts1,
             COUNT(*) as count,
-            AVG(CASE WHEN vst_sbp > 0 AND vst_sbp < 300 THEN vst_sbp END) as avg_sbp,
-            AVG(CASE WHEN vst_dbp > 0 AND vst_dbp < 200 THEN vst_dbp END) as avg_dbp,
-            AVG(CASE WHEN vst_per_pu > 0 AND vst_per_pu < 200 THEN vst_per_pu END) as avg_pulse,
-            AVG(CASE WHEN vst_oxy > 0 AND vst_oxy <= 100 THEN vst_oxy END) as avg_oxygen
-        FROM nedis2017
-        WHERE ktas_no IS NOT NULL AND ktas_no != ''
-        GROUP BY ktas_no
-        ORDER BY ktas_no
+            AVG(CASE WHEN ptmihibp > 0 AND ptmihibp < 300 THEN ptmihibp END) as avg_sbp,
+            AVG(CASE WHEN ptmilobp > 0 AND ptmilobp < 200 THEN ptmilobp END) as avg_dbp,
+            AVG(CASE WHEN ptmipuls > 0 AND ptmipuls < 200 THEN ptmipuls END) as avg_pulse,
+            AVG(CASE WHEN ptmivoxs > 0 AND ptmivoxs <= 100 THEN ptmivoxs END) as avg_oxygen
+        FROM emihptmi
+        WHERE ptmikts1 IS NOT NULL AND ptmikts1 != ''
+        GROUP BY ptmikts1
+        ORDER BY ptmikts1
         """
         
         sample_ktas_vitals = self.sample_conn.execute(ktas_vitals_query).fetchdf()
@@ -432,13 +432,13 @@ class EpidemiologicAnalyzer:
         # 지역별 중증도 패턴
         region_ktas_query = """
         SELECT 
-            pat_do_cd as region_code,
-            ktas_no,
+            ptmizipc as region_code,
+            ptmikts1,
             COUNT(*) as count
-        FROM nedis2017
-        WHERE pat_do_cd IS NOT NULL AND ktas_no IS NOT NULL AND ktas_no != ''
-        GROUP BY pat_do_cd, ktas_no
-        ORDER BY pat_do_cd, ktas_no
+        FROM emihptmi
+        WHERE ptmizipc IS NOT NULL AND ptmikts1 IS NOT NULL AND ptmikts1 != ''
+        GROUP BY ptmizipc, ptmikts1
+        ORDER BY ptmizipc, ptmikts1
         """
         
         sample_region_ktas = self.sample_conn.execute(region_ktas_query).fetchdf()
@@ -449,15 +449,15 @@ class EpidemiologicAnalyzer:
         # 병원별 환자 분포
         hospital_query = """
         SELECT 
-            emorg_cd as hospital_code,
+            ptmiemcd as hospital_code,
             COUNT(*) as patient_count,
-            COUNT(DISTINCT pat_do_cd) as region_count,
+            COUNT(DISTINCT ptmizipc) as region_count,
             ROUND(AVG(CASE WHEN pat_age IS NOT NULL AND pat_age != '' AND pat_age != '-'
                           AND TRY_CAST(pat_age AS INTEGER) IS NOT NULL
                           THEN CAST(pat_age AS INTEGER) END), 1) as avg_age
-        FROM nedis2017
-        WHERE emorg_cd IS NOT NULL
-        GROUP BY emorg_cd
+        FROM emihptmi
+        WHERE ptmiemcd IS NOT NULL
+        GROUP BY ptmiemcd
         ORDER BY patient_count DESC
         LIMIT 20
         """

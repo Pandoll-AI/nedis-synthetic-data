@@ -42,11 +42,11 @@ class ComprehensiveValidationReport:
         self.report_data = {}
         
         # Column categories
-        self.demographic_cols = ['pat_age', 'pat_sex', 'pat_sarea']
-        self.clinical_cols = ['ktas01', 'msypt', 'emsypt_yn']
-        self.vital_cols = ['vst_sbp', 'vst_dbp', 'vst_per_pu', 'vst_per_br', 'vst_bdht', 'vst_oxy']
-        self.time_cols = ['vst_dt', 'vst_tm', 'otrm_dt', 'otrm_tm', 'inpat_dt', 'inpat_tm']
-        self.outcome_cols = ['emtrt_rust', 'inpat_rust', 'main_trt_p']
+        self.demographic_cols = ['ptmibrtd', 'ptmisexx', 'ptmizipc']
+        self.clinical_cols = ['ptmikpr1', 'ptmimnsy', 'emsypt_yn']
+        self.vital_cols = ['ptmihibp', 'ptmilobp', 'ptmipuls', 'ptmibrth', 'ptmibdht', 'ptmivoxs']
+        self.time_cols = ['ptmiindt', 'ptmiintm', 'ptmiotdt', 'ptmiottm', 'ptmihsdt', 'ptmihstm']
+        self.outcome_cols = ['ptmiemrt', 'ptmidcrt', 'ptmidept']
         
     def generate_full_report(self, sample_size=10000):
         """Generate complete validation report for all variables"""
@@ -54,7 +54,7 @@ class ComprehensiveValidationReport:
         
         # 1. Load data
         logger.info("Loading original and synthetic data...")
-        self.report_data['original'] = self._load_data(self.original_db, 'nedis2017', sample_size)
+        self.report_data['original'] = self._load_data(self.original_db, 'nedis_original.emihptmi', sample_size)
         
         # Try to load synthetic data
         try:
@@ -93,7 +93,7 @@ class ComprehensiveValidationReport:
         """Load data from database"""
         query = f"""
         SELECT * FROM {table}
-        WHERE ktas01 IS NOT NULL
+        WHERE ptmikpr1 IS NOT NULL
         LIMIT {sample_size}
         """
         return db.fetch_dataframe(query)
@@ -122,9 +122,9 @@ class ComprehensiveValidationReport:
         synthetic = self.report_data['synthetic']
         
         # Age distribution
-        if 'pat_age' in original.columns:
-            orig_age = pd.to_numeric(original['pat_age'], errors='coerce').dropna()
-            synth_age = pd.to_numeric(synthetic['pat_age'], errors='coerce').dropna()
+        if 'ptmibrtd' in original.columns and 'ptmibrtd' in synthetic.columns:
+            orig_age = pd.to_numeric(original['ptmibrtd'], errors='coerce').dropna()
+            synth_age = pd.to_numeric(synthetic['ptmibrtd'], errors='coerce').dropna()
             
             if len(orig_age) > 0 and len(synth_age) > 0:
                 ks_stat, ks_pval = stats.ks_2samp(orig_age, synth_age)
@@ -136,28 +136,28 @@ class ComprehensiveValidationReport:
                 }
         
         # Gender distribution
-        if 'pat_sex' in original.columns:
-            orig_sex = original['pat_sex'].value_counts(normalize=True)
-            synth_sex = synthetic['pat_sex'].value_counts(normalize=True)
+        if 'ptmisexx' in original.columns:
+            orig_sex = original['ptmisexx'].value_counts(normalize=True)
+            synth_sex = synthetic['ptmisexx'].value_counts(normalize=True)
             
             # Chi-square test
-            obs = [synth_sex.get('M', 0) * len(synthetic), synth_sex.get('F', 0) * len(synthetic)]
-            exp = [orig_sex.get('M', 0) * len(synthetic), orig_sex.get('F', 0) * len(synthetic)]
+            obs = [synth_sex.get('1', 0) * len(synthetic), synth_sex.get('2', 0) * len(synthetic)]
+            exp = [orig_sex.get('1', 0) * len(synthetic), orig_sex.get('2', 0) * len(synthetic)]
             
             if sum(exp) > 0:
                 chi2, chi2_pval = stats.chisquare(obs, exp)
                 results['gender'] = {
-                    'original_male_pct': float(orig_sex.get('M', 0) * 100),
-                    'synthetic_male_pct': float(synth_sex.get('M', 0) * 100),
+                    'original_male_pct': float(orig_sex.get('1', 0) * 100),
+                    'synthetic_male_pct': float(synth_sex.get('1', 0) * 100),
                     'chi2_pvalue': float(chi2_pval),
                     'similar': bool(chi2_pval > 0.05)
                 }
         
         # Regional distribution
-        if 'pat_sarea' in original.columns:
-            top_regions = original['pat_sarea'].value_counts().head(10).index
-            orig_region = original[original['pat_sarea'].isin(top_regions)]['pat_sarea'].value_counts(normalize=True)
-            synth_region = synthetic[synthetic['pat_sarea'].isin(top_regions)]['pat_sarea'].value_counts(normalize=True)
+        if 'ptmizipc' in original.columns and 'ptmizipc' in synthetic.columns:
+            top_regions = original['ptmizipc'].value_counts().head(10).index
+            orig_region = original[original['ptmizipc'].isin(top_regions)]['ptmizipc'].value_counts(normalize=True)
+            synth_region = synthetic[synthetic['ptmizipc'].isin(top_regions)]['ptmizipc'].value_counts(normalize=True)
             
             results['region'] = {
                 'top_regions_covered': len(set(orig_region.index) & set(synth_region.index)),
@@ -174,9 +174,9 @@ class ComprehensiveValidationReport:
         synthetic = self.report_data['synthetic']
         
         # KTAS distribution
-        if 'ktas01' in original.columns:
-            orig_ktas = original['ktas01'].value_counts(normalize=True).sort_index()
-            synth_ktas = synthetic['ktas01'].value_counts(normalize=True).sort_index()
+        if 'ptmikpr1' in original.columns:
+            orig_ktas = original['ptmikpr1'].value_counts(normalize=True).sort_index()
+            synth_ktas = synthetic['ptmikpr1'].value_counts(normalize=True).sort_index()
             
             results['ktas'] = {
                 'distribution': {}
@@ -198,9 +198,9 @@ class ComprehensiveValidationReport:
                 results['ktas']['similar'] = bool(chi2_pval > 0.05)
         
         # Chief symptoms
-        if 'msypt' in original.columns:
-            orig_symptoms = original['msypt'].value_counts().head(20)
-            synth_symptoms = synthetic['msypt'].value_counts().head(20)
+        if 'ptmimnsy' in original.columns:
+            orig_symptoms = original['ptmimnsy'].value_counts().head(20)
+            synth_symptoms = synthetic['ptmimnsy'].value_counts().head(20)
             
             common_symptoms = set(orig_symptoms.index) & set(synth_symptoms.index)
             results['symptoms'] = {
@@ -217,12 +217,12 @@ class ComprehensiveValidationReport:
         synthetic = self.report_data['synthetic']
         
         vital_names = {
-            'vst_sbp': 'Systolic BP',
-            'vst_dbp': 'Diastolic BP',
-            'vst_per_pu': 'Pulse',
-            'vst_per_br': 'Respiration',
-            'vst_bdht': 'Temperature',
-            'vst_oxy': 'O2 Saturation'
+            'ptmihibp': 'Systolic BP',
+            'ptmilobp': 'Diastolic BP',
+            'ptmipuls': 'Pulse',
+            'ptmibrth': 'Respiration',
+            'ptmibdht': 'Temperature',
+            'ptmivoxs': 'O2 Saturation'
         }
         
         for col, name in vital_names.items():
@@ -284,23 +284,23 @@ class ComprehensiveValidationReport:
                 return None
         
         # Calculate ER stay times
-        if all(col in original.columns for col in ['vst_dt', 'vst_tm', 'otrm_dt', 'otrm_tm']):
+        if all(col in original.columns for col in ['ptmiindt', 'ptmiintm', 'ptmiotdt', 'ptmiottm']):
             original['er_stay'] = original.apply(
-                lambda x: (parse_datetime(x['otrm_dt'], x['otrm_tm']) - parse_datetime(x['vst_dt'], x['vst_tm'])).total_seconds() / 60
-                if parse_datetime(x['otrm_dt'], x['otrm_tm']) and parse_datetime(x['vst_dt'], x['vst_tm']) else None,
+                lambda x: (parse_datetime(x['ptmiotdt'], x['ptmiottm']) - parse_datetime(x['ptmiindt'], x['ptmiintm'])).total_seconds() / 60
+                if parse_datetime(x['ptmiotdt'], x['ptmiottm']) and parse_datetime(x['ptmiindt'], x['ptmiintm']) else None,
                 axis=1
             )
             
             synthetic['er_stay'] = synthetic.apply(
-                lambda x: (parse_datetime(x['otrm_dt'], x['otrm_tm']) - parse_datetime(x['vst_dt'], x['vst_tm'])).total_seconds() / 60
-                if parse_datetime(x['otrm_dt'], x['otrm_tm']) and parse_datetime(x['vst_dt'], x['vst_tm']) else None,
+                lambda x: (parse_datetime(x['ptmiotdt'], x['ptmiottm']) - parse_datetime(x['ptmiindt'], x['ptmiintm'])).total_seconds() / 60
+                if parse_datetime(x['ptmiotdt'], x['ptmiottm']) and parse_datetime(x['ptmiindt'], x['ptmiintm']) else None,
                 axis=1
             )
             
             # Validate by KTAS
             for ktas in range(1, 6):
-                orig_ktas = original[original['ktas01'] == ktas]['er_stay'].dropna()
-                synth_ktas = synthetic[synthetic['ktas01'] == ktas]['er_stay'].dropna()
+                orig_ktas = original[original['ptmikpr1'] == ktas]['er_stay'].dropna()
+                synth_ktas = synthetic[synthetic['ptmikpr1'] == ktas]['er_stay'].dropna()
                 
                 # Filter reasonable values
                 orig_ktas = orig_ktas[(orig_ktas > 0) & (orig_ktas < 10080)]
@@ -327,9 +327,9 @@ class ComprehensiveValidationReport:
         synthetic = self.report_data['synthetic']
         
         # Treatment results distribution
-        if 'emtrt_rust' in original.columns:
-            orig_outcome = original['emtrt_rust'].value_counts(normalize=True).head(10)
-            synth_outcome = synthetic['emtrt_rust'].value_counts(normalize=True).head(10)
+        if 'ptmiemrt' in original.columns:
+            orig_outcome = original['ptmiemrt'].value_counts(normalize=True).head(10)
+            synth_outcome = synthetic['ptmiemrt'].value_counts(normalize=True).head(10)
             
             results['treatment_outcomes'] = {
                 'top_outcomes': {}
@@ -342,17 +342,17 @@ class ComprehensiveValidationReport:
                 }
         
         # Admission rates by KTAS
-        if 'emtrt_rust' in original.columns:
+        if 'ptmiemrt' in original.columns:
             admission_codes = ['31', '32', '33', '34']
             
             results['admission_rates'] = {}
             for ktas in range(1, 6):
-                orig_ktas = original[original['ktas01'] == ktas]
-                synth_ktas = synthetic[synthetic['ktas01'] == ktas]
+                orig_ktas = original[original['ptmikpr1'] == ktas]
+                synth_ktas = synthetic[synthetic['ptmikpr1'] == ktas]
                 
                 if len(orig_ktas) > 0 and len(synth_ktas) > 0:
-                    orig_admit_rate = orig_ktas['emtrt_rust'].isin(admission_codes).mean()
-                    synth_admit_rate = synth_ktas['emtrt_rust'].isin(admission_codes).mean()
+                    orig_admit_rate = orig_ktas['ptmiemrt'].isin(admission_codes).mean()
+                    synth_admit_rate = synth_ktas['ptmiemrt'].isin(admission_codes).mean()
                     
                     results['admission_rates'][f'ktas_{ktas}'] = {
                         'original_rate': float(orig_admit_rate * 100),
@@ -433,9 +433,9 @@ class ComprehensiveValidationReport:
         
         # Age distribution
         ax = axes[0, 0]
-        if 'pat_age' in original.columns:
-            orig_age = pd.to_numeric(original['pat_age'], errors='coerce').dropna()
-            synth_age = pd.to_numeric(synthetic['pat_age'], errors='coerce').dropna()
+        if 'ptmibrtd' in original.columns and 'ptmibrtd' in synthetic.columns:
+            orig_age = pd.to_numeric(original['ptmibrtd'], errors='coerce').dropna()
+            synth_age = pd.to_numeric(synthetic['ptmibrtd'], errors='coerce').dropna()
             
             ax.hist(orig_age, bins=20, alpha=0.5, label='Original', color='blue', density=True)
             ax.hist(synth_age, bins=20, alpha=0.5, label='Synthetic', color='red', density=True)
@@ -446,10 +446,10 @@ class ComprehensiveValidationReport:
         
         # Gender distribution
         ax = axes[0, 1]
-        if 'pat_sex' in original.columns:
+        if 'ptmisexx' in original.columns:
             gender_data = pd.DataFrame({
-                'Original': original['pat_sex'].value_counts(normalize=True) * 100,
-                'Synthetic': synthetic['pat_sex'].value_counts(normalize=True) * 100
+                'Original': original['ptmisexx'].value_counts(normalize=True) * 100,
+                'Synthetic': synthetic['ptmisexx'].value_counts(normalize=True) * 100
             })
             gender_data.plot(kind='bar', ax=ax)
             ax.set_xlabel('Gender')
@@ -459,11 +459,11 @@ class ComprehensiveValidationReport:
         
         # Regional distribution (top 10)
         ax = axes[1, 0]
-        if 'pat_sarea' in original.columns:
-            top_regions = original['pat_sarea'].value_counts().head(10).index
+        if 'ptmizipc' in original.columns and 'ptmizipc' in synthetic.columns:
+            top_regions = original['ptmizipc'].value_counts().head(10).index
             region_data = pd.DataFrame({
-                'Original': original[original['pat_sarea'].isin(top_regions)]['pat_sarea'].value_counts(normalize=True).head(10) * 100,
-                'Synthetic': synthetic[synthetic['pat_sarea'].isin(top_regions)]['pat_sarea'].value_counts(normalize=True).head(10) * 100
+                'Original': original[original['ptmizipc'].isin(top_regions)]['ptmizipc'].value_counts(normalize=True).head(10) * 100,
+                'Synthetic': synthetic[synthetic['ptmizipc'].isin(top_regions)]['ptmizipc'].value_counts(normalize=True).head(10) * 100
             })
             region_data.plot(kind='barh', ax=ax)
             ax.set_xlabel('Percentage')
@@ -472,9 +472,9 @@ class ComprehensiveValidationReport:
         
         # Age by gender
         ax = axes[1, 1]
-        if 'pat_age' in original.columns and 'pat_sex' in original.columns:
-            orig_age_m = pd.to_numeric(original[original['pat_sex'] == 'M']['pat_age'], errors='coerce').dropna()
-            orig_age_f = pd.to_numeric(original[original['pat_sex'] == 'F']['pat_age'], errors='coerce').dropna()
+        if 'ptmibrtd' in original.columns and 'ptmibrtd' in synthetic.columns and 'ptmisexx' in original.columns:
+            orig_age_m = pd.to_numeric(original[original['ptmisexx'] == '1']['ptmibrtd'], errors='coerce').dropna()
+            orig_age_f = pd.to_numeric(original[original['ptmisexx'] == '2']['ptmibrtd'], errors='coerce').dropna()
             
             bp_data = [orig_age_m, orig_age_f]
             bp = ax.boxplot(bp_data, labels=['Male', 'Female'], patch_artist=True)
@@ -497,10 +497,10 @@ class ComprehensiveValidationReport:
         
         # KTAS distribution
         ax = axes[0, 0]
-        if 'ktas01' in original.columns:
+        if 'ptmikpr1' in original.columns:
             ktas_data = pd.DataFrame({
-                'Original': original['ktas01'].value_counts(normalize=True).sort_index() * 100,
-                'Synthetic': synthetic['ktas01'].value_counts(normalize=True).sort_index() * 100
+                'Original': original['ptmikpr1'].value_counts(normalize=True).sort_index() * 100,
+                'Synthetic': synthetic['ptmikpr1'].value_counts(normalize=True).sort_index() * 100
             })
             ktas_data.plot(kind='bar', ax=ax)
             ax.set_xlabel('KTAS Level')
@@ -510,11 +510,11 @@ class ComprehensiveValidationReport:
         
         # Top symptoms
         ax = axes[0, 1]
-        if 'msypt' in original.columns:
-            top_symptoms = original['msypt'].value_counts().head(10)
+        if 'ptmimnsy' in original.columns:
+            top_symptoms = original['ptmimnsy'].value_counts().head(10)
             symptoms_data = pd.DataFrame({
-                'Original': original['msypt'].value_counts(normalize=True).head(10) * 100,
-                'Synthetic': synthetic['msypt'].value_counts(normalize=True).head(10) * 100
+                'Original': original['ptmimnsy'].value_counts(normalize=True).head(10) * 100,
+                'Synthetic': synthetic['ptmimnsy'].value_counts(normalize=True).head(10) * 100
             })
             symptoms_data.plot(kind='barh', ax=ax)
             ax.set_xlabel('Percentage')
@@ -523,7 +523,7 @@ class ComprehensiveValidationReport:
         
         # Emergency symptoms
         ax = axes[1, 0]
-        if 'emsypt_yn' in original.columns:
+        if 'emsypt_yn' in original.columns and 'emsypt_yn' in synthetic.columns:
             em_data = pd.DataFrame({
                 'Original': original['emsypt_yn'].value_counts(normalize=True) * 100,
                 'Synthetic': synthetic['emsypt_yn'].value_counts(normalize=True) * 100
@@ -536,11 +536,11 @@ class ComprehensiveValidationReport:
         
         # KTAS by age group
         ax = axes[1, 1]
-        if 'ktas01' in original.columns and 'pat_age' in original.columns:
-            age_groups = pd.cut(pd.to_numeric(original['pat_age'], errors='coerce'), 
+        if 'ptmikpr1' in original.columns and 'ptmibrtd' in original.columns and 'ptmibrtd' in synthetic.columns:
+            age_groups = pd.cut(pd.to_numeric(original['ptmibrtd'], errors='coerce'), 
                                bins=[0, 18, 40, 65, 100], 
                                labels=['<18', '18-40', '40-65', '65+'])
-            ktas_age = pd.crosstab(original['ktas01'], age_groups, normalize='columns') * 100
+            ktas_age = pd.crosstab(original['ptmikpr1'], age_groups, normalize='columns') * 100
             ktas_age.T.plot(kind='bar', stacked=True, ax=ax)
             ax.set_xlabel('Age Group')
             ax.set_ylabel('Percentage')
@@ -560,12 +560,12 @@ class ComprehensiveValidationReport:
         synthetic = self.report_data['synthetic']
         
         vital_specs = [
-            ('vst_sbp', 'Systolic BP (mmHg)', axes[0, 0], (80, 200)),
-            ('vst_dbp', 'Diastolic BP (mmHg)', axes[0, 1], (40, 120)),
-            ('vst_per_pu', 'Pulse Rate (bpm)', axes[0, 2], (40, 150)),
-            ('vst_per_br', 'Respiration Rate', axes[1, 0], (8, 40)),
-            ('vst_bdht', 'Body Temperature (°C)', axes[1, 1], (35, 40)),
-            ('vst_oxy', 'O2 Saturation (%)', axes[1, 2], (85, 100))
+            ('ptmihibp', 'Systolic BP (mmHg)', axes[0, 0], (80, 200)),
+            ('ptmilobp', 'Diastolic BP (mmHg)', axes[0, 1], (40, 120)),
+            ('ptmipuls', 'Pulse Rate (bpm)', axes[0, 2], (40, 150)),
+            ('ptmibrth', 'Respiration Rate', axes[1, 0], (8, 40)),
+            ('ptmibdht', 'Body Temperature (°C)', axes[1, 1], (35, 40)),
+            ('ptmivoxs', 'O2 Saturation (%)', axes[1, 2], (85, 100))
         ]
         
         for col, title, ax, xlim in vital_specs:
@@ -605,8 +605,8 @@ class ComprehensiveValidationReport:
         for i, ktas in enumerate(range(1, 6)):
             ax = axes[i // 3, i % 3]
             
-            orig_ktas = original[original['ktas01'] == ktas]['er_stay'].dropna()
-            synth_ktas = synthetic[synthetic['ktas01'] == ktas]['er_stay'].dropna()
+            orig_ktas = original[original['ptmikpr1'] == ktas]['er_stay'].dropna()
+            synth_ktas = synthetic[synthetic['ptmikpr1'] == ktas]['er_stay'].dropna()
             
             # Filter reasonable values
             orig_ktas = orig_ktas[(orig_ktas > 0) & (orig_ktas < 600)]
@@ -696,10 +696,10 @@ class ComprehensiveValidationReport:
         original = self.report_data['original']
         synthetic = self.report_data['synthetic']
         
-        if 'ktas01' in original.columns:
+        if 'ptmikpr1' in original.columns:
             ktas_comp = pd.DataFrame({
-                'Original': original['ktas01'].value_counts(normalize=True).sort_index() * 100,
-                'Synthetic': synthetic['ktas01'].value_counts(normalize=True).sort_index() * 100
+                'Original': original['ptmikpr1'].value_counts(normalize=True).sort_index() * 100,
+                'Synthetic': synthetic['ptmikpr1'].value_counts(normalize=True).sort_index() * 100
             })
             x = np.arange(len(ktas_comp))
             width = 0.35
@@ -1117,11 +1117,21 @@ The synthetic data generation system achieves a **{validation['overall']['qualit
 
 def main():
     """Generate comprehensive validation report"""
+    import argparse
+    parser = argparse.ArgumentParser(description='Comprehensive NEDIS Validation Report')
+    parser.add_argument('--original-db', default='nedis_data.duckdb')
+    parser.add_argument('--synthetic-db', default='nedis_synthetic.duckdb')
+    parser.add_argument('--sample-size', type=int, default=5000)
+    args = parser.parse_args()
+
     logger.info("Starting Comprehensive NEDIS Validation Report...")
-    
-    report_generator = ComprehensiveValidationReport()
-    report_generator.generate_full_report(sample_size=5000)
-    
+
+    report_generator = ComprehensiveValidationReport(
+        original_db=args.original_db,
+        synthetic_db=args.synthetic_db
+    )
+    report_generator.generate_full_report(sample_size=args.sample_size)
+
     logger.info("Report generation complete! Check outputs/comprehensive_validation/")
 
 if __name__ == "__main__":

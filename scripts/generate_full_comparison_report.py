@@ -35,14 +35,14 @@ class ComprehensiveComparisonReport:
         self.config = ConfigManager('config/generation_params.yaml')
         
         # Define all variable categories
-        self.demographic_vars = ['pat_age', 'pat_sex', 'pat_sarea', 'vst_rute', 'vst_meth']
-        self.clinical_vars = ['ktas01', 'msypt', 'emtrt_rust', 'emsypt_yn']
-        self.vital_vars = ['vst_sbp', 'vst_dbp', 'vst_per_pu', 'vst_per_br', 'vst_bdht', 'vst_oxy']
+        self.demographic_vars = ['ptmibrtd', 'ptmisexx', 'ptmizipc', 'vst_rute', 'ptmiinmn']
+        self.clinical_vars = ['ptmikpr1', 'ptmimnsy', 'ptmiemrt', 'emsypt_yn']
+        self.vital_vars = ['ptmihibp', 'ptmilobp', 'ptmipuls', 'ptmibrth', 'ptmibdht', 'ptmivoxs']
         self.datetime_pairs = [
-            ('ocur_dt', 'ocur_tm'),
-            ('vst_dt', 'vst_tm'),
-            ('otrm_dt', 'otrm_tm'),
-            ('inpat_dt', 'inpat_tm'),
+            ('ptmiakdt', 'ptmiaktm'),
+            ('ptmiindt', 'ptmiintm'),
+            ('ptmiotdt', 'ptmiottm'),
+            ('ptmihsdt', 'ptmihstm'),
             ('otpat_dt', 'otpat_tm')
         ]
         
@@ -92,8 +92,8 @@ class ComprehensiveComparisonReport:
         """Load original NEDIS data"""
         query = f"""
         SELECT *
-        FROM nedis_data.nedis2017
-        WHERE ktas01 IS NOT NULL
+        FROM nedis_original.emihptmi
+        WHERE ptmikpr1 IS NOT NULL
         LIMIT {sample_size}
         """
         return self.original_db.fetch_dataframe(query)
@@ -116,7 +116,7 @@ class ComprehensiveComparisonReport:
         synthetic = self.report_data['original'].copy()
         
         # Add noise to continuous variables
-        for col in self.vital_vars + ['pat_age']:
+        for col in self.vital_vars + ['ptmibrtd']:
             if col in synthetic.columns:
                 numeric_col = pd.to_numeric(synthetic[col], errors='coerce')
                 valid_mask = numeric_col.notna() & (numeric_col > 0)
@@ -132,8 +132,8 @@ class ComprehensiveComparisonReport:
         synth = self.report_data['synthetic']
         
         # Age distribution
-        orig_age = pd.to_numeric(orig['pat_age'], errors='coerce').dropna()
-        synth_age = pd.to_numeric(synth['pat_age'], errors='coerce').dropna()
+        orig_age = pd.to_numeric(orig['ptmibrtd'], errors='coerce').dropna()
+        synth_age = pd.to_numeric(synth['ptmibrtd'], errors='coerce').dropna()
         
         ks_stat, ks_pval = stats.ks_2samp(orig_age, synth_age)
         results['age'] = {
@@ -146,21 +146,21 @@ class ComprehensiveComparisonReport:
         }
         
         # Gender distribution
-        orig_gender = orig['pat_sex'].value_counts(normalize=True)
-        synth_gender = synth['pat_sex'].value_counts(normalize=True)
+        orig_gender = orig['ptmisexx'].value_counts(normalize=True)
+        synth_gender = synth['ptmisexx'].value_counts(normalize=True)
         
         results['gender'] = {
-            'original_male_pct': float(orig_gender.get('M', 0) * 100),
-            'synthetic_male_pct': float(synth_gender.get('M', 0) * 100),
-            'original_female_pct': float(orig_gender.get('F', 0) * 100),
-            'synthetic_female_pct': float(synth_gender.get('F', 0) * 100)
+            'original_male_pct': float(orig_gender.get('1', 0) * 100),
+            'synthetic_male_pct': float(synth_gender.get('1', 0) * 100),
+            'original_female_pct': float(orig_gender.get('2', 0) * 100),
+            'synthetic_female_pct': float(synth_gender.get('2', 0) * 100)
         }
         
         # Region distribution
-        top_regions = orig['pat_sarea'].value_counts().head(10)
+        top_regions = orig['ptmizipc'].value_counts().head(10)
         results['regions'] = {
             'top_10_regions': top_regions.to_dict(),
-            'coverage': float(len(synth['pat_sarea'].unique()) / len(orig['pat_sarea'].unique()) * 100)
+            'coverage': float(len(synth['ptmizipc'].unique()) / len(orig['ptmizipc'].unique()) * 100)
         }
         
         return results
@@ -172,8 +172,8 @@ class ComprehensiveComparisonReport:
         synth = self.report_data['synthetic']
         
         # KTAS distribution
-        orig_ktas = orig['ktas01'].value_counts(normalize=True).sort_index()
-        synth_ktas = synth['ktas01'].value_counts(normalize=True).sort_index()
+        orig_ktas = orig['ptmikpr1'].value_counts(normalize=True).sort_index()
+        synth_ktas = synth['ptmikpr1'].value_counts(normalize=True).sort_index()
         
         results['ktas'] = {}
         for ktas in range(1, 6):
@@ -183,8 +183,8 @@ class ComprehensiveComparisonReport:
             }
         
         # Treatment results
-        orig_treat = orig['emtrt_rust'].value_counts(normalize=True).head(5)
-        synth_treat = synth['emtrt_rust'].value_counts(normalize=True).head(5)
+        orig_treat = orig['ptmiemrt'].value_counts(normalize=True).head(5)
+        synth_treat = synth['ptmiemrt'].value_counts(normalize=True).head(5)
         
         results['treatment'] = {
             'top_5_original': orig_treat.to_dict(),
@@ -192,8 +192,8 @@ class ComprehensiveComparisonReport:
         }
         
         # Chief complaints
-        orig_symptoms = orig['msypt'].value_counts().head(20)
-        synth_symptoms = synth['msypt'].value_counts().head(20)
+        orig_symptoms = orig['ptmimnsy'].value_counts().head(20)
+        synth_symptoms = synth['ptmimnsy'].value_counts().head(20)
         
         common_symptoms = set(orig_symptoms.index) & set(synth_symptoms.index)
         results['symptoms'] = {
@@ -210,12 +210,12 @@ class ComprehensiveComparisonReport:
         synth = self.report_data['synthetic']
         
         vital_names = {
-            'vst_sbp': 'Systolic BP',
-            'vst_dbp': 'Diastolic BP',
-            'vst_per_pu': 'Pulse',
-            'vst_per_br': 'Respiration',
-            'vst_bdht': 'Temperature',
-            'vst_oxy': 'O2 Saturation'
+            'ptmihibp': 'Systolic BP',
+            'ptmilobp': 'Diastolic BP',
+            'ptmipuls': 'Pulse',
+            'ptmibrth': 'Respiration',
+            'ptmibdht': 'Temperature',
+            'ptmivoxs': 'O2 Saturation'
         }
         
         for col, name in vital_names.items():
@@ -348,8 +348,8 @@ class ComprehensiveComparisonReport:
         # KTAS-specific ER stay analysis
         results['ktas_er_stay'] = {}
         for ktas in range(1, 6):
-            orig_ktas = orig[orig['ktas01'] == ktas]['gap_er_stay'].dropna()
-            synth_ktas = synth[synth['ktas01'] == ktas]['gap_er_stay'].dropna()
+            orig_ktas = orig[orig['ptmikpr1'] == ktas]['gap_er_stay'].dropna()
+            synth_ktas = synth[synth['ptmikpr1'] == ktas]['gap_er_stay'].dropna()
             
             if len(orig_ktas) > 5 and len(synth_ktas) > 5:
                 results['ktas_er_stay'][f'ktas_{ktas}'] = {
@@ -367,8 +367,8 @@ class ComprehensiveComparisonReport:
         synth = self.report_data['synthetic']
         
         # KTAS vs Age correlation
-        orig_corr = orig[['ktas01', 'pat_age']].apply(pd.to_numeric, errors='coerce').corr().iloc[0, 1]
-        synth_corr = synth[['ktas01', 'pat_age']].apply(pd.to_numeric, errors='coerce').corr().iloc[0, 1]
+        orig_corr = orig[['ptmikpr1', 'ptmibrtd']].apply(pd.to_numeric, errors='coerce').corr().iloc[0, 1]
+        synth_corr = synth[['ptmikpr1', 'ptmibrtd']].apply(pd.to_numeric, errors='coerce').corr().iloc[0, 1]
         
         results['ktas_age_correlation'] = {
             'original': float(orig_corr) if not pd.isna(orig_corr) else 0,
@@ -434,8 +434,8 @@ class ComprehensiveComparisonReport:
         fig.suptitle('Demographics Comparison', fontsize=16, fontweight='bold')
         
         # Age distribution
-        orig_age = pd.to_numeric(orig['pat_age'], errors='coerce').dropna()
-        synth_age = pd.to_numeric(synth['pat_age'], errors='coerce').dropna()
+        orig_age = pd.to_numeric(orig['ptmibrtd'], errors='coerce').dropna()
+        synth_age = pd.to_numeric(synth['ptmibrtd'], errors='coerce').dropna()
         
         axes[0, 0].hist(orig_age, bins=30, alpha=0.5, label='Original', color='blue', density=True)
         axes[0, 0].hist(synth_age, bins=30, alpha=0.5, label='Synthetic', color='red', density=True)
@@ -446,8 +446,8 @@ class ComprehensiveComparisonReport:
         
         # Gender distribution
         gender_data = pd.DataFrame({
-            'Original': orig['pat_sex'].value_counts(normalize=True),
-            'Synthetic': synth['pat_sex'].value_counts(normalize=True)
+            'Original': orig['ptmisexx'].value_counts(normalize=True),
+            'Synthetic': synth['ptmisexx'].value_counts(normalize=True)
         })
         gender_data.plot(kind='bar', ax=axes[0, 1])
         axes[0, 1].set_title('Gender Distribution')
@@ -455,8 +455,8 @@ class ComprehensiveComparisonReport:
         axes[0, 1].set_xlabel('Gender')
         
         # Top regions
-        top_regions_orig = orig['pat_sarea'].value_counts().head(10)
-        top_regions_synth = synth['pat_sarea'].value_counts().head(10)
+        top_regions_orig = orig['ptmizipc'].value_counts().head(10)
+        top_regions_synth = synth['ptmizipc'].value_counts().head(10)
         
         axes[0, 2].barh(range(len(top_regions_orig)), top_regions_orig.values, alpha=0.5, label='Original')
         axes[0, 2].barh(range(len(top_regions_synth)), top_regions_synth.values, alpha=0.5, label='Synthetic')
@@ -467,8 +467,8 @@ class ComprehensiveComparisonReport:
         
         # KTAS distribution
         ktas_data = pd.DataFrame({
-            'Original': orig['ktas01'].value_counts(normalize=True).sort_index(),
-            'Synthetic': synth['ktas01'].value_counts(normalize=True).sort_index()
+            'Original': orig['ptmikpr1'].value_counts(normalize=True).sort_index(),
+            'Synthetic': synth['ptmikpr1'].value_counts(normalize=True).sort_index()
         })
         ktas_data.plot(kind='bar', ax=axes[1, 0])
         axes[1, 0].set_title('KTAS Distribution')
@@ -509,12 +509,12 @@ class ComprehensiveComparisonReport:
         fig.suptitle('Vital Signs Comparison', fontsize=16, fontweight='bold')
         
         vital_specs = [
-            ('vst_sbp', 'Systolic BP (mmHg)', axes[0, 0], (80, 200)),
-            ('vst_dbp', 'Diastolic BP (mmHg)', axes[0, 1], (40, 120)),
-            ('vst_per_pu', 'Pulse (bpm)', axes[0, 2], (40, 150)),
-            ('vst_per_br', 'Respiration (rpm)', axes[1, 0], (10, 40)),
-            ('vst_bdht', 'Temperature (°C)', axes[1, 1], (35, 40)),
-            ('vst_oxy', 'O2 Saturation (%)', axes[1, 2], (85, 100))
+            ('ptmihibp', 'Systolic BP (mmHg)', axes[0, 0], (80, 200)),
+            ('ptmilobp', 'Diastolic BP (mmHg)', axes[0, 1], (40, 120)),
+            ('ptmipuls', 'Pulse (bpm)', axes[0, 2], (40, 150)),
+            ('ptmibrth', 'Respiration (rpm)', axes[1, 0], (10, 40)),
+            ('ptmibdht', 'Temperature (°C)', axes[1, 1], (35, 40)),
+            ('ptmivoxs', 'O2 Saturation (%)', axes[1, 2], (85, 100))
         ]
         
         for col, title, ax, xlim in vital_specs:
@@ -549,8 +549,8 @@ class ComprehensiveComparisonReport:
         ktas_er_stay_synth = []
         for ktas in range(1, 6):
             if 'gap_er_stay' in orig.columns:
-                orig_ktas = orig[orig['ktas01'] == ktas]['gap_er_stay'].dropna()
-                synth_ktas = synth[synth['ktas01'] == ktas]['gap_er_stay'].dropna()
+                orig_ktas = orig[orig['ptmikpr1'] == ktas]['gap_er_stay'].dropna()
+                synth_ktas = synth[synth['ptmikpr1'] == ktas]['gap_er_stay'].dropna()
                 ktas_er_stay_orig.append(orig_ktas)
                 ktas_er_stay_synth.append(synth_ktas)
         

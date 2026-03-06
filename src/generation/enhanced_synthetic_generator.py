@@ -197,13 +197,13 @@ class EnhancedSyntheticGenerator:
         patients_df = self.base_generator.generate_all_patients(gen_config)
         
         # Assign temporal patterns if generator didn't
-        if 'vst_dt' not in patients_df.columns and start_date and end_date:
+        if 'ptmiindt' not in patients_df.columns and start_date and end_date:
             patients_df = self.temporal_assigner.assign_all_timestamps(
                 patients_df, gen_config
             )
         
         # Generate time gaps if not already present
-        if 'ocur_dt' in patients_df.columns or 'ocur_tm' in patients_df.columns:
+        if 'ptmiakdt' in patients_df.columns or 'ptmiaktm' in patients_df.columns:
             patients_df = self.time_gap_synthesizer.generate_all_time_gaps(patients_df)
         
         return patients_df
@@ -236,17 +236,17 @@ class EnhancedSyntheticGenerator:
             )
         
         # Geographic generalization
-        if 'pat_sarea' in df.columns:
+        if 'ptmizipc' in df.columns:
             logger.info(f"Generalizing geography to {self.config.geo_generalization_level}")
-            df['pat_sarea'] = self.geo_generalizer.generalize_series(
-                df['pat_sarea'],
+            df['ptmizipc'] = self.geo_generalizer.generalize_series(
+                df['ptmizipc'],
                 target_level=self.config.geo_generalization_level
             )
         
         # Temporal generalization for visit times
-        if 'vst_tm' in df.columns:
+        if 'ptmiintm' in df.columns:
             logger.info(f"Generalizing time to {self.config.time_generalization_unit}")
-            df['vst_tm'] = df['vst_tm'].apply(
+            df['ptmiintm'] = df['ptmiintm'].apply(
                 lambda x: self.temporal_generalizer.round_time(
                     x, self.config.time_generalization_unit
                 )
@@ -257,8 +257,8 @@ class EnhancedSyntheticGenerator:
     def _enforce_k_anonymity(self, df: pd.DataFrame) -> pd.DataFrame:
         """Enforce k-anonymity through suppression or generalization"""
         quasi_identifiers = [
-            'pat_age', 'pat_sex', 'pat_sarea',
-            'vst_dt', 'vst_tm', 'ktas_lv'
+            'pat_age', 'ptmisexx', 'ptmizipc',
+            'ptmiindt', 'ptmiintm', 'ktas_lv'
         ]
         
         # Filter to existing columns
@@ -331,8 +331,8 @@ class EnhancedSyntheticGenerator:
                 df[col] = df[col].round().astype(int)
         
         # Sort by visit date/time if available
-        if 'vst_dt' in df.columns:
-            df = df.sort_values('vst_dt')
+        if 'ptmiindt' in df.columns:
+            df = df.sort_values('ptmiindt')
         
         # Reset index
         df = df.reset_index(drop=True)

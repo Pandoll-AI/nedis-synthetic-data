@@ -209,6 +209,57 @@ ktas_generation:
 
 ---
 
+## 📋 NEDIS 변수명 체계 및 레퍼런스
+
+### 레퍼런스 파일 위치
+- `reference/NEDIS_4.0_CORE_SCHEMA.txt` — NEDIS 4.0 DB 테이블 정의 (EMIHPTMI 등 8개 테이블, 칼럼 ID/타입/길이/설명)
+- `reference/NEDIS_4.0_DETAIL_INSTRUCTION.txt` — 항목별 입력 및 전송지침 (코드값 정의, 유효성 조건, 입력 주의사항)
+- `reference/NEDIS_VARIABLE_MAPPING.md` — 표본자료(2017) 변수명 ↔ NEDIS 4.0 DB 칼럼 ID 완전 매칭표 (27개)
+- `NEDIS_CODEBOOK.md` — 2017년 표본자료 코드북 (340개 칼럼, 5개 테이블 구조)
+
+### 변수명 체계 요약
+
+**전체 시스템 통합**: Python 파이프라인, HTML 생성기 모두 NEDIS 4.0 DB 칼럼 ID를 사용합니다 (v20260306 마이그레이션 완료).
+
+- **NEDIS 4.0 DB 칼럼 ID**: `ptmiemcd`, `ptmiindt`, `ptmibrtd` 등
+  - 실제 NEDIS Agent DB 스키마, 테이블 접두사 기반 (`ptmi` = EMIHPTMI)
+  - `reference/NEDIS_4.0_CORE_SCHEMA.txt`에 정의
+- **표본자료 변수명 (2017, 구 형식)**: `emorg_cd`, `vst_dt`, `pat_age_gr` 등
+  - `NEDIS_CODEBOOK.md`에 정의, DuckDB VIEW를 통해 NEDIS 4.0으로 매핑
+  - 매핑 소스: `src/core/nedis4_converter.py`
+
+### 값 변환 규칙
+
+| 항목 | 표본자료 형식 | NEDIS 4.0 형식 | 처리 위치 |
+|------|-------------|---------------|----------|
+| 성별 | M/F | 1/2 | DuckDB VIEW |
+| 연령 | 코드 (01,09,10,...) | YYYYMMDD 합성 생년월일 | 생성기 (Python/JS) |
+| 주소 | 시도코드 (11,21,...) | 12자리 합성 우편번호 | 생성기 (Python/JS) |
+| 기타 | 동일 포맷 | 칼럼명만 변경 | VIEW + 코드 |
+
+### 변수명 매핑 (26개)
+
+```
+ptmiemcd (emorg_cd)    ptmiidno (pat_reg_no)   ptmiindt (vst_dt)
+ptmiintm (vst_tm)      ptmibrtd (pat_age_gr)   ptmisexx (pat_sex)
+ptmizipc (pat_do_cd)   ptmiinmn (vst_meth)     ptmikts1 (ktas_fstu)
+ptmikpr1 (ktas01)      ptmimnsy (msypt)        ptmidept (main_trt_p)
+ptmiemrt (emtrt_rust)  ptmiotdt (otrm_dt)      ptmiottm (otrm_tm)
+ptmiakdt (ocur_dt)     ptmiaktm (ocur_tm)      ptmihibp (vst_sbp)
+ptmilobp (vst_dbp)     ptmipuls (vst_per_pu)   ptmibrth (vst_per_br)
+ptmibdht (vst_bdht)    ptmivoxs (vst_oxy)      ptmihsdt (inpat_dt)
+ptmihstm (inpat_tm)    ptmidcrt (inpat_rust)
+```
+
+### 데이터 규칙 (NEDIS 4.0 기준)
+- **Primary Key**: 응급의료기관코드 + 의무기록번호 + 내원일자 + 내원시간
+- **NN 필드 빈 값**: 문자형 `'-'`, 숫자형 바이트수만큼 `'9'`
+- **활력징후 측정불가**: `-1` 처리
+- **발병일시 미상**: 일자 `'11111111'`, 시간 `'1111'`
+- **진단코드**: KCD 최신버전, 특수문자 제거 후 전송
+
+---
+
 ## 🚨 주의사항
 
 1. **절대 하드코딩하지 마세요**: 모든 분포와 패턴은 실제 데이터에서 학습해야 합니다.

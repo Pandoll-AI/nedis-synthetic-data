@@ -146,19 +146,19 @@ class ConfigManager:
             # 동적 패턴이 부족한 경우를 위한 폴백 분포 (하드코딩 제거)
             'fallback': {
                 'distributions': {
-                    'vst_meth': {
+                    'ptmiinmn': {
                         '11': 0.5, '21': 0.2, '31': 0.2, '41': 0.1
                     },
-                    'msypt': {
+                    'ptmimnsy': {
                         'R50': 0.2, 'R10': 0.2, 'R06': 0.2, 'M79': 0.2, 'K59': 0.2
                     },
-                    'main_trt_p': {
+                    'ptmidept': {
                         '01': 0.3, '02': 0.2, '03': 0.2, '04': 0.15, '05': 0.1, '06': 0.05
                     },
-                    'ktas_fstu': {
+                    'ptmikts1': {
                         '3': 0.3, '4': 0.5, '5': 0.2
                     },
-                    'emtrt_rust_by_ktas': {
+                    'ptmiemrt_by_ktas': {
                         '1': {'31': 0.7, '32': 0.2, '12': 0.1},
                         '2': {'31': 0.5, '32': 0.2, '11': 0.3},
                         '3': {'31': 0.3, '11': 0.7},
@@ -182,11 +182,11 @@ class ConfigManager:
                     'capacity': 0.05,
                 },
                 'correlation_pairs': [
-                    {'name': 'ktas_age', 'left': 'ktas_fstu', 'right': 'pat_age_gr', 'method': 'cramers_v', 'weight': 1.0},
-                    {'name': 'ktas_sex', 'left': 'ktas_fstu', 'right': 'pat_sex', 'method': 'cramers_v', 'weight': 1.0},
-                    {'name': 'age_hour', 'left': 'pat_age_gr', 'right': 'hour', 'method': 'auto', 'weight': 1.0},
-                    {'name': 'sex_hour', 'left': 'pat_sex', 'right': 'hour', 'method': 'auto', 'weight': 0.8},
-                    {'name': 'ktas_hour', 'left': 'ktas_fstu', 'right': 'hour', 'method': 'auto', 'weight': 1.0},
+                    {'name': 'ktas_age', 'left': 'ptmikts1', 'right': 'ptmibrtd', 'method': 'cramers_v', 'weight': 1.0},
+                    {'name': 'ktas_sex', 'left': 'ptmikts1', 'right': 'ptmisexx', 'method': 'cramers_v', 'weight': 1.0},
+                    {'name': 'age_hour', 'left': 'ptmibrtd', 'right': 'hour', 'method': 'auto', 'weight': 1.0},
+                    {'name': 'sex_hour', 'left': 'ptmisexx', 'right': 'hour', 'method': 'auto', 'weight': 0.8},
+                    {'name': 'ktas_hour', 'left': 'ptmikts1', 'right': 'hour', 'method': 'auto', 'weight': 1.0},
                     {'name': 'month_hour', 'left': 'month', 'right': 'hour', 'method': 'pearson', 'weight': 0.8},
                     {'name': 'month_dow', 'left': 'month', 'right': 'dow', 'method': 'pearson', 'weight': 0.6},
                 ],

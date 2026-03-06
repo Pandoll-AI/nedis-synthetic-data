@@ -282,12 +282,13 @@ class CorrelationBalanceValidator:
 
     def _enrich_context_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         result = df.copy()
-        if {"vst_dt"}.issubset(result.columns) and "month" not in result.columns:
-            dt = pd.to_datetime(result["vst_dt"].astype(str), format="%Y%m%d", errors="coerce")
+        if {"ptmiindt"}.issubset(result.columns) and "month" not in result.columns:
+            dt = pd.to_datetime(result["ptmiindt"].astype(str), format="%Y%m%d", errors="coerce")
             result["month"] = dt.dt.month.fillna(0).astype(int)
-            result["dow"] = dt.dt.dayofweek.fillna(0).astype(int)
-        if "vst_tm" in result.columns and "hour" not in result.columns:
-            tm = result["vst_tm"].astype(str).str.zfill(4).str.slice(0, 4)
+            # Convert pandas dayofweek (0=Mon,6=Sun) to DuckDB DOW (0=Sun,6=Sat)
+            result["dow"] = ((dt.dt.dayofweek.fillna(0).astype(int) + 1) % 7)
+        if "ptmiintm" in result.columns and "hour" not in result.columns:
+            tm = result["ptmiintm"].astype(str).str.zfill(4).str.slice(0, 4)
             result["hour"] = tm.str[:2].astype(int)
             result["minute"] = tm.str[2:4].astype(int)
         return result
@@ -297,7 +298,7 @@ class CorrelationBalanceValidator:
         for pair in self.pairs:
             columns.add(str(pair.get("left")))
             columns.add(str(pair.get("right")))
-        for col in ["vst_dt", "vst_tm"]:
+        for col in ["ptmiindt", "ptmiintm"]:
             columns.add(col)
         return columns
 
@@ -338,11 +339,11 @@ class CorrelationBalanceValidator:
     @staticmethod
     def _default_pairs() -> List[Dict[str, Any]]:
         return [
-            {"name": "ktas_age", "left": "ktas_fstu", "right": "pat_age_gr", "method": "cramers_v", "weight": 1.0},
-            {"name": "ktas_sex", "left": "ktas_fstu", "right": "pat_sex", "method": "cramers_v", "weight": 1.0},
-            {"name": "age_hour", "left": "pat_age_gr", "right": "hour", "method": "auto", "weight": 1.0},
-            {"name": "sex_hour", "left": "pat_sex", "right": "hour", "method": "auto", "weight": 0.8},
-            {"name": "ktas_hour", "left": "ktas_fstu", "right": "hour", "method": "auto", "weight": 1.0},
+            {"name": "ktas_age", "left": "ptmikts1", "right": "ptmibrtd", "method": "cramers_v", "weight": 1.0},
+            {"name": "ktas_sex", "left": "ptmikts1", "right": "ptmisexx", "method": "cramers_v", "weight": 1.0},
+            {"name": "age_hour", "left": "ptmibrtd", "right": "hour", "method": "auto", "weight": 1.0},
+            {"name": "sex_hour", "left": "ptmisexx", "right": "hour", "method": "auto", "weight": 0.8},
+            {"name": "ktas_hour", "left": "ptmikts1", "right": "hour", "method": "auto", "weight": 1.0},
             {"name": "month_hour", "left": "month", "right": "hour", "method": "pearson", "weight": 0.8},
             {"name": "month_dow", "left": "month", "right": "dow", "method": "pearson", "weight": 0.6},
         ]

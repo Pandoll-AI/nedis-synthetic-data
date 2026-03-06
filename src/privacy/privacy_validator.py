@@ -78,8 +78,8 @@ class PrivacyValidator:
         
         # Define quasi-identifiers for NEDIS
         self.quasi_identifiers = [
-            'pat_age', 'pat_sex', 'pat_sarea',
-            'vst_dt', 'vst_tm', 'ktas_lv',
+            'pat_age', 'ptmisexx', 'ptmizipc',
+            'ptmiindt', 'ptmiintm', 'ktas_lv',
             'emorg_type', 'emorg_btype'
         ]
         

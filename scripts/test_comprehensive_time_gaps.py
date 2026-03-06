@@ -90,8 +90,8 @@ def main():
     print("-" * 60)
     
     # Combine with KTAS for validation
-    result_df['ktas01'] = ktas_levels
-    result_df['emtrt_rust'] = treatment_results
+    result_df['ptmikpr1'] = ktas_levels
+    result_df['ptmiemrt'] = treatment_results
     
     validation = synthesizer.validate_time_consistency(result_df)
     
@@ -105,14 +105,14 @@ def main():
     print("-" * 60)
     
     # Show first 5 records
-    sample_cols = ['ktas01', 'emtrt_rust', 'ocur_dt', 'ocur_tm', 'vst_dt', 'vst_tm', 
-                   'otrm_dt', 'otrm_tm', 'inpat_dt', 'inpat_tm', 'otpat_dt', 'otpat_tm']
+    sample_cols = ['ptmikpr1', 'ptmiemrt', 'ptmiakdt', 'ptmiaktm', 'ptmiindt', 'ptmiintm', 
+                   'ptmiotdt', 'ptmiottm', 'ptmihsdt', 'ptmihstm', 'otpat_dt', 'otpat_tm']
     
     display_df = result_df[sample_cols].head(5)
     
     print("\nFirst 5 records:")
     for idx, row in display_df.iterrows():
-        print(f"\nPatient {idx + 1} (KTAS {int(row['ktas01'])}, Result {row['emtrt_rust']}):")
+        print(f"\nPatient {idx + 1} (KTAS {int(row['ptmikpr1'])}, Result {row['ptmiemrt']}):")
         
         # Parse and display times
         times = {}
@@ -173,7 +173,7 @@ def main():
     print("-" * 53)
     
     for ktas in range(1, 6):
-        ktas_mask = result_df['ktas01'] == ktas
+        ktas_mask = result_df['ptmikpr1'] == ktas
         ktas_data = result_df[ktas_mask]
         
         if len(ktas_data) > 0:

@@ -21,10 +21,10 @@ logger = logging.getLogger(__name__)
 class ComprehensiveTimeGapSynthesizer:
     """
     Synthesizes ALL time gaps between NEDIS datetime pairs:
-    - ocur_dt/tm: Incident occurrence time
-    - vst_dt/tm: ER visit/arrival time  
-    - otrm_dt/tm: ER discharge time
-    - inpat_dt/tm: Hospital admission time
+    - ptmiakdt/tm: Incident occurrence time
+    - ptmiindt/tm: ER visit/arrival time  
+    - ptmiotdt/tm: ER discharge time
+    - ptmihsdt/tm: Hospital admission time
     - otpat_dt/tm: Outpatient transfer time
     """
     
@@ -34,6 +34,14 @@ class ComprehensiveTimeGapSynthesizer:
         self.time_config = config.get('temporal', {})
         self._time_patterns = None
         
+        # Prefix → NEDIS 4.0 column mapping (date, time)
+        self._dt_col_map = {
+            'vst':   ('ptmiindt', 'ptmiintm'),
+            'ocur':  ('ptmiakdt', 'ptmiaktm'),
+            'otrm':  ('ptmiotdt', 'ptmiottm'),
+            'inpat': ('ptmihsdt', 'ptmihstm'),
+        }
+
         # Define all possible time gaps
         self.gap_definitions = {
             'incident_to_arrival': {
@@ -50,11 +58,6 @@ class ComprehensiveTimeGapSynthesizer:
                 'from': 'otrm', 'to': 'inpat',
                 'description': 'Time from ER discharge to admission',
                 'max_hours': 48
-            },
-            'discharge_to_outpatient': {
-                'from': 'otrm', 'to': 'otpat',
-                'description': 'Time from ER discharge to outpatient',
-                'max_hours': 168
             },
             'arrival_to_admission': {
                 'from': 'vst', 'to': 'inpat',
@@ -75,31 +78,29 @@ class ComprehensiveTimeGapSynthesizer:
         logger.info("Analyzing comprehensive time gap patterns...")
         
         # Load data with all datetime columns
-        source_table = self.config.get('original.source_table', 'nedis_data.nedis2017')
+        source_table = self.config.get('original.source_table', 'nedis_original.emihptmi')
         
+        # Build SELECT columns from the dt_col_map
+        select_cols = ['ptmikpr1', 'ptmiemrt']
+        for dt_col, tm_col in self._dt_col_map.values():
+            select_cols.extend([dt_col, tm_col])
+
         query = f"""
-        SELECT 
-            ktas01, emtrt_rust,
-            vst_dt, vst_tm,
-            ocur_dt, ocur_tm,
-            otrm_dt, otrm_tm,
-            inpat_dt, inpat_tm,
-            otpat_dt, otpat_tm
+        SELECT {', '.join(select_cols)}
         FROM {source_table}
-        WHERE ktas01 IS NOT NULL 
-            AND ktas01 >= 1 
-            AND ktas01 <= 5
+        WHERE ptmikpr1 IS NOT NULL
+            AND ptmikpr1 >= 1
+            AND ptmikpr1 <= 5
         LIMIT 100000
         """
-        
+
         df = self.db.fetch_dataframe(query)
         logger.info(f"Loaded {len(df)} records for analysis")
-        
-        # Parse all datetime pairs
-        datetime_pairs = ['vst', 'ocur', 'otrm', 'inpat', 'otpat']
-        for prefix in datetime_pairs:
+
+        # Parse all datetime pairs using NEDIS 4.0 column names
+        for prefix, (dt_col, tm_col) in self._dt_col_map.items():
             df[f'{prefix}_datetime'] = df.apply(
-                lambda x: self._parse_datetime(x[f'{prefix}_dt'], x[f'{prefix}_tm']), 
+                lambda x, d=dt_col, t=tm_col: self._parse_datetime(x[d], x[t]),
                 axis=1
             )
         
@@ -191,10 +192,10 @@ class ComprehensiveTimeGapSynthesizer:
         # Level 1: KTAS + Treatment Result
         level1_patterns = {}
         for ktas in range(1, 6):
-            for result in df['emtrt_rust'].unique():
+            for result in df['ptmiemrt'].unique():
                 if pd.notna(result):
                     key = f"ktas_{ktas}_result_{result}"
-                    mask = (df['ktas01'] == ktas) & (df['emtrt_rust'] == result)
+                    mask = (df['ptmikpr1'] == ktas) & (df['ptmiemrt'] == result)
                     subset = df[mask]
                     
                     if len(subset) >= 10:
@@ -206,7 +207,7 @@ class ComprehensiveTimeGapSynthesizer:
         level2_patterns = {}
         for ktas in range(1, 6):
             key = f"ktas_{ktas}"
-            mask = df['ktas01'] == ktas
+            mask = df['ptmikpr1'] == ktas
             subset = df[mask]
             
             if len(subset) >= 10:
@@ -283,10 +284,10 @@ class ComprehensiveTimeGapSynthesizer:
         Generate ALL datetime columns based on comprehensive gap patterns
         
         Returns DataFrame with columns:
-        - ocur_dt, ocur_tm: Incident occurrence
-        - vst_dt, vst_tm: ER arrival
-        - otrm_dt, otrm_tm: ER discharge
-        - inpat_dt, inpat_tm: Hospital admission (if applicable)
+        - ptmiakdt, ptmiaktm: Incident occurrence
+        - ptmiindt, ptmiintm: ER arrival
+        - ptmiotdt, ptmiottm: ER discharge
+        - ptmihsdt, ptmihstm: Hospital admission (if applicable)
         - otpat_dt, otpat_tm: Outpatient transfer (if applicable)
         """
         if self._time_patterns is None:
@@ -368,14 +369,14 @@ class ComprehensiveTimeGapSynthesizer:
                 otpat_times.append(None)
         
         # Convert to NEDIS format
-        result_df['ocur_dt'] = [dt.strftime('%Y%m%d') if dt else None for dt in ocur_times]
-        result_df['ocur_tm'] = [dt.strftime('%H%M') if dt else None for dt in ocur_times]
-        result_df['vst_dt'] = [dt.strftime('%Y%m%d') if dt else None for dt in vst_times]
-        result_df['vst_tm'] = [dt.strftime('%H%M') if dt else None for dt in vst_times]
-        result_df['otrm_dt'] = [dt.strftime('%Y%m%d') if dt else None for dt in otrm_times]
-        result_df['otrm_tm'] = [dt.strftime('%H%M') if dt else None for dt in otrm_times]
-        result_df['inpat_dt'] = [dt.strftime('%Y%m%d') if dt else None for dt in inpat_times]
-        result_df['inpat_tm'] = [dt.strftime('%H%M') if dt else None for dt in inpat_times]
+        result_df['ptmiakdt'] = [dt.strftime('%Y%m%d') if dt else None for dt in ocur_times]
+        result_df['ptmiaktm'] = [dt.strftime('%H%M') if dt else None for dt in ocur_times]
+        result_df['ptmiindt'] = [dt.strftime('%Y%m%d') if dt else None for dt in vst_times]
+        result_df['ptmiintm'] = [dt.strftime('%H%M') if dt else None for dt in vst_times]
+        result_df['ptmiotdt'] = [dt.strftime('%Y%m%d') if dt else None for dt in otrm_times]
+        result_df['ptmiottm'] = [dt.strftime('%H%M') if dt else None for dt in otrm_times]
+        result_df['ptmihsdt'] = [dt.strftime('%Y%m%d') if dt else None for dt in inpat_times]
+        result_df['ptmihstm'] = [dt.strftime('%H%M') if dt else None for dt in inpat_times]
         result_df['otpat_dt'] = [dt.strftime('%Y%m%d') if dt else None for dt in otpat_times]
         result_df['otpat_tm'] = [dt.strftime('%H%M') if dt else None for dt in otpat_times]
         

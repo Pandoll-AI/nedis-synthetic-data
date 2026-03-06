@@ -45,12 +45,12 @@ class StatisticalValidator:
         self.source_table = self._resolve_source_table(source_table)
         self._table_schema_cache: Dict[str, List[str]] = {}
         self._continuous_config = {
-            "vst_sbp": (40, 300),
-            "vst_dbp": (30, 220),
-            "vst_per_pu": (1, 300),
-            "vst_per_br": (1, 200),
-            "vst_bdht": (34.0, 44.0),
-            "vst_oxy": (70, 100),
+            "ptmihibp": (40, 300),
+            "ptmilobp": (30, 220),
+            "ptmipuls": (1, 300),
+            "ptmibrth": (1, 200),
+            "ptmibdht": (34.0, 44.0),
+            "ptmivoxs": (70, 100),
         }
         self._invalid_markers = {
             -1,
@@ -68,12 +68,12 @@ class StatisticalValidator:
         
         # 검증할 변수들 정의
         self.continuous_variables = [
-            'vst_sbp', 'vst_dbp', 'vst_per_pu', 'vst_per_br', 'vst_bdht', 'vst_oxy'
+            'ptmihibp', 'ptmilobp', 'ptmipuls', 'ptmibrth', 'ptmibdht', 'ptmivoxs'
         ]
         
         self.categorical_variables = [
-            'pat_age_gr', 'pat_sex', 'pat_do_cd', 'ktas_fstu', 'emtrt_rust', 
-            'vst_meth', 'msypt', 'main_trt_p'
+            'ptmibrtd', 'ptmisexx', 'ptmizipc', 'ptmikts1', 'ptmiemrt', 
+            'ptmiinmn', 'ptmimnsy', 'ptmidept'
         ]
         
         # 검정 임계값
@@ -312,7 +312,7 @@ class StatisticalValidator:
 
         # 원본/합성 스키마 불일치 보정
         fallback_map = {
-            'ktas_fstu': ['ktas_fstu', 'ktas01'],
+            'ptmikts1': ['ptmikts1', 'ptmikpr1'],
         }
 
         select_exprs = []

@@ -60,48 +60,48 @@ class ConditionalProbabilityExtractor:
             ktas_prob_query = """
             WITH ktas_counts AS (
                 SELECT 
-                    pat_age_gr,
-                    pat_sex,
+                    ptmibrtd,
+                    ptmisexx,
                     gubun,
-                    vst_meth,
-                    ktas_fstu,
+                    ptmiinmn,
+                    ptmikts1,
                     COUNT(*) as count
-                FROM nedis_original.nedis2017
-                WHERE pat_age_gr != '' AND pat_age_gr IS NOT NULL
-                  AND pat_sex IN ('M', 'F')
+                FROM nedis_original.emihptmi
+                WHERE ptmibrtd != '' AND ptmibrtd IS NOT NULL
+                  AND ptmisexx IN ('1', '2')
                   AND gubun != '' AND gubun IS NOT NULL
-                  AND vst_meth != '' AND vst_meth IS NOT NULL
-                  AND ktas_fstu IN ('1', '2', '3', '4', '5')
-                GROUP BY pat_age_gr, pat_sex, gubun, vst_meth, ktas_fstu
+                  AND ptmiinmn != '' AND ptmiinmn IS NOT NULL
+                  AND ptmikts1 IN ('1', '2', '3', '4', '5')
+                GROUP BY ptmibrtd, ptmisexx, gubun, ptmiinmn, ptmikts1
             ),
             group_totals AS (
                 SELECT 
-                    pat_age_gr,
-                    pat_sex,
+                    ptmibrtd,
+                    ptmisexx,
                     gubun,
-                    vst_meth,
+                    ptmiinmn,
                     SUM(count) as group_total
                 FROM ktas_counts
-                GROUP BY pat_age_gr, pat_sex, gubun, vst_meth
+                GROUP BY ptmibrtd, ptmisexx, gubun, ptmiinmn
                 HAVING SUM(count) >= ?  -- 최소 샘플 수 필터
             )
             INSERT INTO nedis_meta.ktas_conditional_prob 
             SELECT 
-                kc.pat_age_gr,
-                kc.pat_sex,
+                kc.ptmibrtd,
+                kc.ptmisexx,
                 kc.gubun,
-                kc.vst_meth,
-                kc.ktas_fstu,
+                kc.ptmiinmn,
+                kc.ptmikts1,
                 -- 베이지안 평활화 적용: (count + α) / (total + α * n_categories)
                 (kc.count + ?) / (gt.group_total + ? * 5.0) as probability,
                 kc.count as sample_count
             FROM ktas_counts kc
             JOIN group_totals gt 
-                ON kc.pat_age_gr = gt.pat_age_gr 
-                AND kc.pat_sex = gt.pat_sex
+                ON kc.ptmibrtd = gt.ptmibrtd 
+                AND kc.ptmisexx = gt.ptmisexx
                 AND kc.gubun = gt.gubun 
-                AND kc.vst_meth = gt.vst_meth
-            ORDER BY kc.pat_age_gr, kc.pat_sex, kc.gubun, kc.vst_meth, kc.ktas_fstu
+                AND kc.ptmiinmn = gt.ptmiinmn
+            ORDER BY kc.ptmibrtd, kc.ptmisexx, kc.gubun, kc.ptmiinmn, kc.ptmikts1
             """
             
             self.db.execute_query(ktas_prob_query, [
@@ -154,16 +154,16 @@ class ConditionalProbabilityExtractor:
             main_diagnosis_query = """
             WITH diagnosis_counts AS (
                 SELECT 
-                    n.pat_age_gr,
-                    n.pat_sex,
+                    n.ptmibrtd,
+                    n.ptmisexx,
                     n.gubun,
-                    n.ktas_fstu,
+                    n.ptmikts1,
                     CASE 
                         WHEN diag_count.cnt >= ? THEN d.diagnosis_code
                         ELSE LEFT(d.diagnosis_code, 3) || 'X'  -- 희귀 진단은 상위 3자리 + X로 그룹화
                     END as grouped_diagnosis_code,
                     COUNT(*) as count
-                FROM nedis_original.nedis2017 n
+                FROM nedis_original.emihptmi n
                 JOIN nedis_original.diag_er d ON n.index_key = d.index_key
                 LEFT JOIN (
                     SELECT diagnosis_code, COUNT(*) as cnt
@@ -171,43 +171,43 @@ class ConditionalProbabilityExtractor:
                     WHERE position = 1
                     GROUP BY diagnosis_code
                 ) diag_count ON d.diagnosis_code = diag_count.diagnosis_code
-                WHERE n.pat_age_gr != '' AND n.pat_age_gr IS NOT NULL
-                  AND n.pat_sex IN ('M', 'F')
+                WHERE n.ptmibrtd != '' AND n.ptmibrtd IS NOT NULL
+                  AND n.ptmisexx IN ('1', '2')
                   AND n.gubun != '' AND n.gubun IS NOT NULL
-                  AND n.ktas_fstu IN ('1', '2', '3', '4', '5')
+                  AND n.ptmikts1 IN ('1', '2', '3', '4', '5')
                   AND d.position = 1  -- 주진단만
                   AND d.diagnosis_code != '' AND d.diagnosis_code IS NOT NULL
-                GROUP BY n.pat_age_gr, n.pat_sex, n.gubun, n.ktas_fstu, grouped_diagnosis_code
+                GROUP BY n.ptmibrtd, n.ptmisexx, n.gubun, n.ptmikts1, grouped_diagnosis_code
             ),
             group_totals AS (
                 SELECT 
-                    pat_age_gr, pat_sex, gubun, ktas_fstu,
+                    ptmibrtd, ptmisexx, gubun, ptmikts1,
                     SUM(count) as group_total
                 FROM diagnosis_counts
-                GROUP BY pat_age_gr, pat_sex, gubun, ktas_fstu
+                GROUP BY ptmibrtd, ptmisexx, gubun, ptmikts1
                 HAVING SUM(count) >= ?  -- 최소 샘플 수
             )
             INSERT INTO nedis_meta.diagnosis_conditional_prob
             SELECT 
-                dc.pat_age_gr,
-                dc.pat_sex,
+                dc.ptmibrtd,
+                dc.ptmisexx,
                 dc.gubun,
-                dc.ktas_fstu,
+                dc.ptmikts1,
                 dc.grouped_diagnosis_code,
                 -- 베이지안 평활화
                 (dc.count + ?) / (gt.group_total + ? * 
                     (SELECT COUNT(DISTINCT grouped_diagnosis_code) FROM diagnosis_counts dc2 
-                     WHERE dc2.pat_age_gr = dc.pat_age_gr AND dc2.pat_sex = dc.pat_sex 
-                       AND dc2.gubun = dc.gubun AND dc2.ktas_fstu = dc.ktas_fstu)
+                     WHERE dc2.ptmibrtd = dc.ptmibrtd AND dc2.ptmisexx = dc.ptmisexx 
+                       AND dc2.gubun = dc.gubun AND dc2.ptmikts1 = dc.ptmikts1)
                 ) as probability,
                 true as is_primary,
                 dc.count as sample_count
             FROM diagnosis_counts dc
             JOIN group_totals gt 
-                ON dc.pat_age_gr = gt.pat_age_gr 
-                AND dc.pat_sex = gt.pat_sex
+                ON dc.ptmibrtd = gt.ptmibrtd 
+                AND dc.ptmisexx = gt.ptmisexx
                 AND dc.gubun = gt.gubun 
-                AND dc.ktas_fstu = gt.ktas_fstu
+                AND dc.ptmikts1 = gt.ptmikts1
             """
             
             self.db.execute_query(main_diagnosis_query, [
@@ -263,11 +263,11 @@ class ConditionalProbabilityExtractor:
             # 1. 확률 합계가 1인지 확인
             prob_sum_query = """
             SELECT 
-                pat_age_gr, pat_sex, gubun, vst_meth,
+                ptmibrtd, ptmisexx, gubun, ptmiinmn,
                 SUM(probability) as prob_sum,
                 COUNT(*) as ktas_count
             FROM nedis_meta.ktas_conditional_prob
-            GROUP BY pat_age_gr, pat_sex, gubun, vst_meth
+            GROUP BY ptmibrtd, ptmisexx, gubun, ptmiinmn
             HAVING ABS(SUM(probability) - 1.0) > 0.01
             LIMIT 10
             """
@@ -292,7 +292,7 @@ class ConditionalProbabilityExtractor:
             stats_query = """
             SELECT 
                 COUNT(*) as total_records,
-                COUNT(DISTINCT pat_age_gr || '|' || pat_sex || '|' || gubun || '|' || vst_meth) as unique_groups,
+                COUNT(DISTINCT ptmibrtd || '|' || ptmisexx || '|' || gubun || '|' || ptmiinmn) as unique_groups,
                 AVG(probability) as avg_probability,
                 MIN(probability) as min_probability,
                 MAX(probability) as max_probability
@@ -315,11 +315,11 @@ class ConditionalProbabilityExtractor:
             prob_sum_query = """
             WITH group_sums AS (
                 SELECT 
-                    pat_age_gr, pat_sex, gubun, ktas_fstu,
+                    ptmibrtd, ptmisexx, gubun, ptmikts1,
                     SUM(probability) as prob_sum
                 FROM nedis_meta.diagnosis_conditional_prob
                 WHERE is_primary = true
-                GROUP BY pat_age_gr, pat_sex, gubun, ktas_fstu
+                GROUP BY ptmibrtd, ptmisexx, gubun, ptmikts1
             )
             SELECT 
                 COUNT(*) as total_groups,
@@ -398,7 +398,7 @@ class ConditionalProbabilityExtractor:
                 ktas_summary_query = """
                 SELECT 
                     COUNT(*) as total_records,
-                    COUNT(DISTINCT pat_age_gr || '|' || pat_sex || '|' || gubun || '|' || vst_meth) as unique_combinations,
+                    COUNT(DISTINCT ptmibrtd || '|' || ptmisexx || '|' || gubun || '|' || ptmiinmn) as unique_combinations,
                     AVG(probability) as avg_probability,
                     AVG(sample_count) as avg_sample_count
                 FROM nedis_meta.ktas_conditional_prob

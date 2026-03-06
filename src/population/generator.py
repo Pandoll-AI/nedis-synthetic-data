@@ -124,11 +124,11 @@ class PopulationVolumeGenerator:
         try:
             query = """
             SELECT 
-                pat_do_cd,
+                ptmizipc,
                 SUM(yearly_visits) as total_visits
             FROM nedis_meta.population_margins
-            WHERE pat_do_cd != '' AND pat_do_cd IS NOT NULL
-            GROUP BY pat_do_cd
+            WHERE ptmizipc != '' AND ptmizipc IS NOT NULL
+            GROUP BY ptmizipc
             HAVING SUM(yearly_visits) > 0
             ORDER BY total_visits DESC
             """
@@ -143,7 +143,7 @@ class PopulationVolumeGenerator:
             
             proportions = {}
             for _, row in region_data.iterrows():
-                proportions[row['pat_do_cd']] = row['total_visits'] / total_visits
+                proportions[row['ptmizipc']] = row['total_visits'] / total_visits
                 
             self.logger.info(f"Calculated proportions for {len(proportions)} regions")
             self.logger.debug(f"Top 5 regions: {dict(list(proportions.items())[:5])}")
@@ -185,11 +185,11 @@ class PopulationVolumeGenerator:
         try:
             # 해당 지역의 원본 분포 조회
             query = """
-            SELECT pat_age_gr, pat_sex, yearly_visits
+            SELECT ptmibrtd, ptmisexx, yearly_visits
             FROM nedis_meta.population_margins
-            WHERE pat_do_cd = ?
+            WHERE ptmizipc = ?
               AND yearly_visits > 0
-            ORDER BY pat_age_gr, pat_sex
+            ORDER BY ptmibrtd, ptmisexx
             """
             
             region_data = self.db.fetch_dataframe(query, [region_code])
@@ -218,8 +218,8 @@ class PopulationVolumeGenerator:
                 if synthetic_counts[i] > 0:  # 0인 조합은 제외
                     results.append((
                         region_code,
-                        row['pat_age_gr'],
-                        row['pat_sex'],
+                        row['ptmibrtd'],
+                        row['ptmisexx'],
                         int(synthetic_counts[i])
                     ))
             
@@ -237,7 +237,7 @@ class PopulationVolumeGenerator:
         try:
             # DataFrame으로 변환
             volumes_df = pd.DataFrame(volume_batch, columns=[
-                'pat_do_cd', 'pat_age_gr', 'pat_sex', 'synthetic_yearly_count'
+                'ptmizipc', 'ptmibrtd', 'ptmisexx', 'synthetic_yearly_count'
             ])
             
             # 데이터 타입 최적화
@@ -246,7 +246,7 @@ class PopulationVolumeGenerator:
             # DuckDB에 삽입
             self.db.conn.execute("""
                 INSERT INTO nedis_synthetic.yearly_volumes 
-                (pat_do_cd, pat_age_gr, pat_sex, synthetic_yearly_count)
+                (ptmizipc, ptmibrtd, ptmisexx, synthetic_yearly_count)
                 SELECT * FROM volumes_df
             """)
             
@@ -279,9 +279,9 @@ class PopulationVolumeGenerator:
                 AVG(synthetic_yearly_count) as avg_records,
                 MIN(synthetic_yearly_count) as min_records,
                 MAX(synthetic_yearly_count) as max_records,
-                COUNT(DISTINCT pat_do_cd) as unique_regions,
-                COUNT(DISTINCT pat_age_gr) as unique_age_groups,
-                COUNT(DISTINCT pat_sex) as unique_genders
+                COUNT(DISTINCT ptmizipc) as unique_regions,
+                COUNT(DISTINCT ptmibrtd) as unique_age_groups,
+                COUNT(DISTINCT ptmisexx) as unique_genders
             FROM nedis_synthetic.yearly_volumes
             """
             
@@ -291,12 +291,12 @@ class PopulationVolumeGenerator:
             # 시도별 분포
             regional_query = """
             SELECT 
-                pat_do_cd,
+                ptmizipc,
                 COUNT(*) as combinations,
                 SUM(synthetic_yearly_count) as total_records,
                 AVG(synthetic_yearly_count) as avg_records
             FROM nedis_synthetic.yearly_volumes
-            GROUP BY pat_do_cd
+            GROUP BY ptmizipc
             ORDER BY total_records DESC
             LIMIT 10
             """
@@ -306,12 +306,12 @@ class PopulationVolumeGenerator:
             # 성별 분포
             gender_query = """
             SELECT 
-                pat_sex,
+                ptmisexx,
                 COUNT(*) as combinations,
                 SUM(synthetic_yearly_count) as total_records
             FROM nedis_synthetic.yearly_volumes
-            GROUP BY pat_sex
-            ORDER BY pat_sex
+            GROUP BY ptmisexx
+            ORDER BY ptmisexx
             """
             
             summary['gender_distribution'] = self.db.fetch_dataframe(gender_query).to_dict('records')
@@ -363,20 +363,20 @@ class PopulationVolumeGenerator:
             # 3. 지역별 분포 일관성 확인
             region_comparison_query = """
             WITH original_regions AS (
-                SELECT pat_do_cd, SUM(yearly_visits) as original_count
+                SELECT ptmizipc, SUM(yearly_visits) as original_count
                 FROM nedis_meta.population_margins
-                GROUP BY pat_do_cd
+                GROUP BY ptmizipc
             ),
             synthetic_regions AS (
-                SELECT pat_do_cd, SUM(synthetic_yearly_count) as synthetic_count
+                SELECT ptmizipc, SUM(synthetic_yearly_count) as synthetic_count
                 FROM nedis_synthetic.yearly_volumes
-                GROUP BY pat_do_cd
+                GROUP BY ptmizipc
             )
             SELECT 
                 COUNT(*) as regions_matched,
                 AVG(ABS(o.original_count - s.synthetic_count) / NULLIF(o.original_count, 0)) as avg_relative_error
             FROM original_regions o
-            JOIN synthetic_regions s ON o.pat_do_cd = s.pat_do_cd
+            JOIN synthetic_regions s ON o.ptmizipc = s.ptmizipc
             """
             
             comparison = self.db.fetch_dataframe(region_comparison_query).iloc[0]

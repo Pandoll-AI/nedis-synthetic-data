@@ -5,12 +5,12 @@ KTAS 등급과 연령대 기반 생체징후 생성기입니다.
 의학적 정상 범위와 KTAS별 이상 패턴을 고려하여 현실적인 생체징후를 생성합니다.
 
 생성 항목:
-- vst_sbp: 수축기혈압 (mmHg)
-- vst_dbp: 이완기혈압 (mmHg)  
-- vst_per_pu: 맥박수 (회/분)
-- vst_per_br: 호흡수 (회/분)
-- vst_bdht: 체온 (°C)
-- vst_oxy: 산소포화도 (%)
+- ptmihibp: 수축기혈압 (mmHg)
+- ptmilobp: 이완기혈압 (mmHg)  
+- ptmipuls: 맥박수 (회/분)
+- ptmibrth: 호흡수 (회/분)
+- ptmibdht: 체온 (°C)
+- ptmivoxs: 산소포화도 (%)
 """
 
 import numpy as np
@@ -190,10 +190,10 @@ class VitalSignsGenerator:
         try:
             # 해당 날짜 임상 레코드 조회
             clinical_records = self.db.fetch_dataframe("""
-                SELECT 
-                    index_key, pat_age_gr, pat_sex, ktas_fstu
+                SELECT
+                    index_key, ptmibrtd, ptmisexx, ptmikts1
                 FROM nedis_synthetic.clinical_records
-                WHERE vst_dt = ?
+                WHERE ptmiindt = ?
                 ORDER BY index_key
             """, [date_str])
             
@@ -242,9 +242,9 @@ class VitalSignsGenerator:
         """
         
         index_key = patient['index_key']
-        pat_age_gr = patient['pat_age_gr']
-        pat_sex = patient['pat_sex']
-        ktas_level = patient['ktas_fstu']
+        ptmibrtd = patient['ptmibrtd']
+        ptmisexx = patient['ptmisexx']
+        ktas_level = patient['ptmikts1']
         
         try:
             # KTAS별 측정 확률 체크
@@ -252,29 +252,29 @@ class VitalSignsGenerator:
             
             vitals = {
                 'index_key': index_key,
-                'vst_sbp': -1,
-                'vst_dbp': -1,
-                'vst_per_pu': -1,
-                'vst_per_br': -1,
-                'vst_bdht': -1.0,
-                'vst_oxy': -1
+                'ptmihibp': -1,
+                'ptmilobp': -1,
+                'ptmipuls': -1,
+                'ptmibrth': -1,
+                'ptmibdht': -1.0,
+                'ptmivoxs': -1
             }
             
             # 각 생체징후별로 측정 여부 및 값 결정
             if np.random.random() < measurement_prob:
-                vitals.update(self._generate_blood_pressure(pat_age_gr, ktas_level))
+                vitals.update(self._generate_blood_pressure(ptmibrtd, ktas_level))
                 
             if np.random.random() < measurement_prob:
-                vitals['vst_per_pu'] = self._generate_pulse_rate(pat_age_gr, ktas_level)
+                vitals['ptmipuls'] = self._generate_pulse_rate(ptmibrtd, ktas_level)
                 
             if np.random.random() < measurement_prob * 0.9:  # 호흡수는 약간 낮은 측정률
-                vitals['vst_per_br'] = self._generate_respiration_rate(pat_age_gr, ktas_level)
+                vitals['ptmibrth'] = self._generate_respiration_rate(ptmibrtd, ktas_level)
                 
             if np.random.random() < measurement_prob * 0.8:  # 체온은 더 낮은 측정률
-                vitals['vst_bdht'] = self._generate_temperature(ktas_level)
+                vitals['ptmibdht'] = self._generate_temperature(ktas_level)
                 
             if np.random.random() < measurement_prob * 0.7:  # 산소포화도는 중증 환자 위주
-                vitals['vst_oxy'] = self._generate_oxygen_saturation(ktas_level)
+                vitals['ptmivoxs'] = self._generate_oxygen_saturation(ktas_level)
             
             return vitals
             
@@ -282,11 +282,11 @@ class VitalSignsGenerator:
             self.logger.warning(f"Vital signs generation failed for patient {index_key}: {e}")
             return None
     
-    def _generate_blood_pressure(self, pat_age_gr: str, ktas_level: str) -> Dict[str, int]:
+    def _generate_blood_pressure(self, ptmibrtd: str, ktas_level: str) -> Dict[str, int]:
         """혈압 생성 (수축기/이완기)"""
         
-        sbp_params = self.age_normal_ranges['sbp'].get(pat_age_gr, self.age_normal_ranges['sbp']['30'])
-        dbp_params = self.age_normal_ranges['dbp'].get(pat_age_gr, self.age_normal_ranges['dbp']['30'])
+        sbp_params = self.age_normal_ranges['sbp'].get(ptmibrtd, self.age_normal_ranges['sbp']['30'])
+        dbp_params = self.age_normal_ranges['dbp'].get(ptmibrtd, self.age_normal_ranges['dbp']['30'])
         
         abnormal_patterns = self.ktas_abnormal_patterns.get(ktas_level, self.ktas_abnormal_patterns['3'])
         
@@ -315,14 +315,14 @@ class VitalSignsGenerator:
         dbp = max(dbp_params['min'], min(dbp, dbp_params['max']))
         
         return {
-            'vst_sbp': int(round(sbp)),
-            'vst_dbp': int(round(dbp))
+            'ptmihibp': int(round(sbp)),
+            'ptmilobp': int(round(dbp))
         }
     
-    def _generate_pulse_rate(self, pat_age_gr: str, ktas_level: str) -> int:
+    def _generate_pulse_rate(self, ptmibrtd: str, ktas_level: str) -> int:
         """맥박수 생성"""
         
-        pulse_params = self.age_normal_ranges['pulse'].get(pat_age_gr, self.age_normal_ranges['pulse']['30'])
+        pulse_params = self.age_normal_ranges['pulse'].get(ptmibrtd, self.age_normal_ranges['pulse']['30'])
         abnormal_patterns = self.ktas_abnormal_patterns.get(ktas_level, self.ktas_abnormal_patterns['3'])
         
         # 정상 맥박 생성
@@ -343,10 +343,10 @@ class VitalSignsGenerator:
         
         return int(round(pulse))
     
-    def _generate_respiration_rate(self, pat_age_gr: str, ktas_level: str) -> int:
+    def _generate_respiration_rate(self, ptmibrtd: str, ktas_level: str) -> int:
         """호흡수 생성"""
         
-        resp_params = self.age_normal_ranges['respiration'].get(pat_age_gr, self.age_normal_ranges['respiration']['30'])
+        resp_params = self.age_normal_ranges['respiration'].get(ptmibrtd, self.age_normal_ranges['respiration']['30'])
         abnormal_patterns = self.ktas_abnormal_patterns.get(ktas_level, self.ktas_abnormal_patterns['3'])
         
         # 정상 호흡수 생성
@@ -355,7 +355,7 @@ class VitalSignsGenerator:
         # 이상 패턴 적용
         if np.random.random() < abnormal_patterns['tachypnea_prob']:
             # 빈호흡
-            age_factor = 1.5 if pat_age_gr in ['01', '09'] else 1.0  # 소아는 더 빠름
+            age_factor = 1.5 if ptmibrtd in ['01', '09'] else 1.0  # 소아는 더 빠름
             respiration = np.random.normal(resp_params['mean'] * 1.8 * age_factor, resp_params['std'])
             respiration = max(resp_params['mean'] * 1.3, min(respiration, 50))
         else:
@@ -434,16 +434,16 @@ class VitalSignsGenerator:
         try:
             update_sql = """
                 UPDATE nedis_synthetic.clinical_records
-                SET vst_sbp = ?, vst_dbp = ?, vst_per_pu = ?, 
-                    vst_per_br = ?, vst_bdht = ?, vst_oxy = ?
+                SET ptmihibp = ?, ptmilobp = ?, ptmipuls = ?, 
+                    ptmibrth = ?, ptmibdht = ?, ptmivoxs = ?
                 WHERE index_key = ?
             """
             
             batch_data = []
             for vitals in vital_updates:
                 batch_data.append((
-                    vitals['vst_sbp'], vitals['vst_dbp'], vitals['vst_per_pu'],
-                    vitals['vst_per_br'], vitals['vst_bdht'], vitals['vst_oxy'],
+                    vitals['ptmihibp'], vitals['ptmilobp'], vitals['ptmipuls'],
+                    vitals['ptmibrth'], vitals['ptmibdht'], vitals['ptmivoxs'],
                     vitals['index_key']
                 ))
             
@@ -471,7 +471,7 @@ class VitalSignsGenerator:
         # -1 값 (측정 안함)을 제외하고 통계 계산
         summary = {}
         
-        for vital in ['vst_sbp', 'vst_dbp', 'vst_per_pu', 'vst_per_br', 'vst_oxy']:
+        for vital in ['ptmihibp', 'ptmilobp', 'ptmipuls', 'ptmibrth', 'ptmivoxs']:
             measured_values = vitals_df[vitals_df[vital] != -1][vital]
             
             if len(measured_values) > 0:
@@ -491,11 +491,11 @@ class VitalSignsGenerator:
                 }
         
         # 체온은 float 처리
-        if 'vst_bdht' in vitals_df.columns:
-            temp_measured = vitals_df[vitals_df['vst_bdht'] != -1.0]['vst_bdht']
+        if 'ptmibdht' in vitals_df.columns:
+            temp_measured = vitals_df[vitals_df['ptmibdht'] != -1.0]['ptmibdht']
             
             if len(temp_measured) > 0:
-                summary['vst_bdht'] = {
+                summary['ptmibdht'] = {
                     'measured_count': len(temp_measured),
                     'measurement_rate': len(temp_measured) / len(vitals_df),
                     'mean': float(temp_measured.mean()),
@@ -505,7 +505,7 @@ class VitalSignsGenerator:
                     'median': float(temp_measured.median())
                 }
             else:
-                summary['vst_bdht'] = {
+                summary['ptmibdht'] = {
                     'measured_count': 0,
                     'measurement_rate': 0.0
                 }
@@ -523,22 +523,22 @@ class VitalSignsGenerator:
         total_measured = len(vitals_df)
         
         # 혈압 이상
-        hypertension = vitals_df[vitals_df['vst_sbp'] >= 160]['vst_sbp'].count()
-        hypotension = vitals_df[vitals_df['vst_sbp'] <= 90]['vst_sbp'].count()
+        hypertension = vitals_df[vitals_df['ptmihibp'] >= 160]['ptmihibp'].count()
+        hypotension = vitals_df[vitals_df['ptmihibp'] <= 90]['ptmihibp'].count()
         
         # 맥박 이상
-        tachycardia = vitals_df[vitals_df['vst_per_pu'] >= 100]['vst_per_pu'].count()
-        bradycardia = vitals_df[vitals_df['vst_per_pu'] <= 60]['vst_per_pu'].count()
+        tachycardia = vitals_df[vitals_df['ptmipuls'] >= 100]['ptmipuls'].count()
+        bradycardia = vitals_df[vitals_df['ptmipuls'] <= 60]['ptmipuls'].count()
         
         # 호흡 이상
-        tachypnea = vitals_df[vitals_df['vst_per_br'] >= 24]['vst_per_br'].count()
+        tachypnea = vitals_df[vitals_df['ptmibrth'] >= 24]['ptmibrth'].count()
         
         # 체온 이상
-        fever = vitals_df[vitals_df['vst_bdht'] >= 37.5]['vst_bdht'].count()
-        hypothermia = vitals_df[vitals_df['vst_bdht'] <= 35.5]['vst_bdht'].count()
+        fever = vitals_df[vitals_df['ptmibdht'] >= 37.5]['ptmibdht'].count()
+        hypothermia = vitals_df[vitals_df['ptmibdht'] <= 35.5]['ptmibdht'].count()
         
         # 산소포화도 이상
-        hypoxia = vitals_df[vitals_df['vst_oxy'] <= 94]['vst_oxy'].count()
+        hypoxia = vitals_df[vitals_df['ptmivoxs'] <= 94]['ptmivoxs'].count()
         
         abnormal_analysis = {
             'hypertension': {'count': int(hypertension), 'rate': float(hypertension / total_measured)},

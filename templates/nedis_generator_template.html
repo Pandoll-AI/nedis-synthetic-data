@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NEDIS Synthetic Data Generator</title>
+<title>NEDIS 합성 데이터 생성기</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#fafafa;--fg:#111;--border:#ccc;--accent:#2563eb;--accent-hover:#1d4ed8;--muted:#666;--surface:#fff;--code-bg:#f5f5f5}
@@ -12,11 +12,20 @@ h1{font-size:1.5rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:.25rem}
 .subtitle{color:var(--muted);font-size:.75rem;margin-bottom:2rem}
 .section{border:1px solid var(--border);padding:1.5rem;margin-bottom:1.5rem;background:var(--surface)}
 .section-title{font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:1rem}
-.form-row{display:flex;gap:1.5rem;margin-bottom:1rem;flex-wrap:wrap}
+.form-row{display:flex;gap:1.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:flex-start}
 .form-group{display:flex;flex-direction:column;gap:.25rem}
 .form-group label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .form-group input{border:1px solid var(--border);padding:.5rem .75rem;font-family:inherit;font-size:.85rem;width:160px;outline:none;transition:border-color .15s}
 .form-group input:focus{border-color:var(--accent)}
+.tag-group{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.25rem}
+.tag{border:1px solid var(--border);padding:.35rem .7rem;font-family:inherit;font-size:.8rem;cursor:pointer;background:var(--surface);transition:all .15s;user-select:none}
+.tag:hover{border-color:var(--fg)}
+.tag.active{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.seed-input{width:100px;border:1px solid var(--border);padding:.35rem .5rem;font-family:inherit;font-size:.8rem;outline:none;transition:border-color .15s}
+.seed-input:focus{border-color:var(--accent)}
+.seed-input:disabled{opacity:.3;cursor:not-allowed}
+.record-estimate{font-size:.75rem;color:var(--muted);margin-top:.5rem}
+.record-estimate strong{color:var(--fg)}
 .btn{border:1px solid var(--fg);background:var(--fg);color:var(--bg);padding:.6rem 1.5rem;font-family:inherit;font-size:.85rem;cursor:pointer;font-weight:600;letter-spacing:.02em;transition:all .15s}
 .btn:hover{background:var(--accent);border-color:var(--accent)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
@@ -38,65 +47,237 @@ h1{font-size:1.5rem;font-weight:700;letter-spacing:-0.02em;margin-bottom:.25rem}
 .preview-wrap th{background:var(--code-bg);position:sticky;top:0;font-weight:700}
 .preview-wrap tr:nth-child(even){background:var(--code-bg)}
 #errorMsg{color:#dc2626;font-size:.75rem;margin-top:.5rem;display:none}
+.viz-section{display:none;margin-top:1.5rem}
+.viz-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-top:1rem}
+@media(max-width:700px){.viz-grid{grid-template-columns:1fr}}
+.viz-panel{border:1px solid var(--border);padding:1rem;background:var(--surface)}
+.viz-panel h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:.75rem}
+.viz-panel canvas{width:100%;height:auto;display:block;max-width:100%}
+.viz-actions{display:flex;gap:.75rem;margin-top:1rem;align-items:center}
+.viz-status{font-size:.7rem;color:var(--muted)}
+.disclaimer{border-top:1px solid var(--border);margin-top:2rem;padding-top:1.5rem}
+.disclaimer h2{font-size:.85rem;font-weight:700;margin-bottom:.75rem}
+.disclaimer ul{list-style:disc;padding-left:1.5rem;font-size:.72rem;color:var(--muted);line-height:1.8}
+.disclaimer li{margin-bottom:.15rem}
 </style>
 </head>
 <body>
 
-<h1>NEDIS Synthetic Data Generator</h1>
-<p class="subtitle">Browser-based synthetic emergency department data generator &mdash; no server required</p>
+<h1>NEDIS 합성 데이터 생성기</h1>
+<p class="subtitle">브라우저 기반 응급실 합성 데이터 생성 — 서버 불필요, 개인정보 포함 없음 · 권장: Chrome 80+, Firefox 113+, Safari 16.4+ · <strong>v20260305</strong></p>
 
 <div class="section">
-  <div class="section-title">Settings</div>
-  <div class="form-row">
-    <div class="form-group">
-      <label for="numRecords">Records</label>
-      <input type="number" id="numRecords" value="10000" min="1" max="1000000">
-    </div>
-    <div class="form-group">
-      <label for="targetYear">Year</label>
-      <input type="number" id="targetYear" value="2018" min="2000" max="2030">
-    </div>
-    <div class="form-group">
-      <label for="randomSeed">Seed</label>
-      <input type="number" id="randomSeed" value="42" min="0">
+  <div class="section-title">설정</div>
+
+  <div class="form-group" style="margin-bottom:1rem">
+    <label>연도</label>
+    <div class="tag-group" id="yearTags"></div>
+  </div>
+
+  <div class="form-group" style="margin-bottom:1rem">
+    <label>월 (복수 선택 가능)</label>
+    <div class="tag-group" id="monthTags"></div>
+  </div>
+
+  <div class="form-group" style="margin-bottom:1rem">
+    <label>시드</label>
+    <div class="tag-group" id="seedTags">
+      <span class="tag active" data-value="random" onclick="selectSeedMode(this)">무작위</span>
+      <span class="tag" data-value="fixed" onclick="selectSeedMode(this)">지정</span>
+      <input type="number" id="seedValue" class="seed-input" value="42" min="0" disabled>
     </div>
   </div>
-  <div class="actions">
-    <button class="btn" id="btnGenerate" onclick="startGeneration()">Generate</button>
+
+  <div class="record-estimate" id="recordEstimate"></div>
+
+  <div class="actions" style="margin-top:1rem">
+    <button class="btn" id="btnGenerate" onclick="startGeneration()">생성하기</button>
     <div class="progress-wrap" id="progressWrap">
       <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-      <div class="progress-text" id="progressText">Preparing...</div>
+      <div class="progress-text" id="progressText">준비 중...</div>
     </div>
   </div>
   <div id="errorMsg"></div>
 </div>
 
 <div class="section" id="resultsSection" style="display:none">
-  <div class="section-title">Results</div>
+  <div class="section-title">결과</div>
   <div class="stats" id="statsGrid"></div>
   <div class="downloads" id="downloadBtns">
-    <button class="btn btn-outline" onclick="downloadCSV()">CSV Download</button>
-    <button class="btn btn-outline" onclick="downloadJSON()">JSON Download</button>
+    <button class="btn btn-outline" onclick="downloadCSV()">CSV 다운로드</button>
+    <button class="btn btn-outline" onclick="downloadJSON()">JSON 다운로드</button>
+    <button class="btn btn-outline" onclick="downloadCodebook()">코드북 다운로드</button>
+    <button class="btn btn-outline" id="btnViz" onclick="renderVisualization()">분포 시각화</button>
+  </div>
+  <div class="viz-section" id="vizSection">
+    <div class="viz-actions">
+      <span class="viz-status" id="vizStatus"></span>
+    </div>
+    <div class="viz-grid" id="vizGrid"></div>
   </div>
   <div class="preview-wrap" id="previewWrap">
     <table id="previewTable"></table>
   </div>
 </div>
 
-<script id="patternData" type="application/json">%%PATTERNS_JSON%%</script>
+<div class="disclaimer">
+  <h2>면책 고지</h2>
+  <ul>
+    <li>이 도구가 생성하는 데이터는 합성(가상) 데이터이며, 실제 환자 정보를 포함하지 않아 개인정보 우려가 없습니다.</li>
+    <li>연령, 성별, 중증도, 시간 패턴 등 역학적 분포는 실제 패턴을 따르지만, 개별 레코드는 실제 사건과 무관합니다.</li>
+    <li>이 데이터를 실제 데이터로 착각하여 실제 연구나 보고서에 활용하면 안됩니다.</li>
+    <li>분석 연습, 교육, 시스템 테스트 목적으로만 사용하십시오.</li>
+  </ul>
+</div>
+
+<script id="patternData" type="text/plain">%%PATTERNS_BASE64%%</script>
 
 <script>
 var PATTERNS = null;
 var generatedData = null;
 var activeWorkers = [];
+var selectedYear = 2025;
+var selectedMonths = [1, 2, 3];
+var ANNUAL_TOTAL = 9123382;
+var hasGenerated = false;
 
-try { PATTERNS = JSON.parse(document.getElementById('patternData').textContent); } catch(e) { console.error('Pattern parse error:', e); }
+// Decode compressed pattern data (zlib + base64)
+(function loadPatterns() {
+  try {
+    var b64 = document.getElementById('patternData').textContent;
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    var ds = new DecompressionStream('deflate');
+    var writer = ds.writable.getWriter();
+    var reader = ds.readable.getReader();
+    var chunks = [];
+    writer.write(bytes);
+    writer.close();
+    (function read() {
+      reader.read().then(function(result) {
+        if (result.value) chunks.push(result.value);
+        if (!result.done) return read();
+        var total = 0;
+        for (var i = 0; i < chunks.length; i++) total += chunks[i].length;
+        var merged = new Uint8Array(total);
+        var offset = 0;
+        for (var i = 0; i < chunks.length; i++) { merged.set(chunks[i], offset); offset += chunks[i].length; }
+        var jsonStr = new TextDecoder().decode(merged);
+        PATTERNS = JSON.parse(jsonStr);
+        updateEstimate();
+      });
+    })();
+  } catch(e) { console.error('Pattern decode error:', e); }
+})();
+
+// ---- UI initialization ----
+(function initUI() {
+  var yearContainer = document.getElementById('yearTags');
+  for (var y = 2020; y <= 2025; y++) {
+    var tag = document.createElement('span');
+    tag.className = 'tag' + (y === 2025 ? ' active' : '');
+    tag.textContent = y;
+    tag.setAttribute('data-value', y);
+    tag.onclick = function() {
+      var tags = yearContainer.querySelectorAll('.tag');
+      for (var i = 0; i < tags.length; i++) tags[i].classList.remove('active');
+      this.classList.add('active');
+      selectedYear = parseInt(this.getAttribute('data-value'));
+      updateEstimate();
+    };
+    yearContainer.appendChild(tag);
+  }
+
+  var monthContainer = document.getElementById('monthTags');
+  var defaultMonths = [1, 2, 3];
+  for (var m = 1; m <= 12; m++) {
+    var tag = document.createElement('span');
+    tag.className = 'tag' + (defaultMonths.indexOf(m) >= 0 ? ' active' : '');
+    tag.textContent = m + '\uC6D4';
+    tag.setAttribute('data-value', m);
+    tag.onclick = function() {
+      if (hasGenerated) {
+        var allTags = monthContainer.querySelectorAll('.tag');
+        for (var i = 0; i < allTags.length; i++) allTags[i].classList.remove('active');
+        this.classList.add('active');
+        hasGenerated = false;
+      } else {
+        this.classList.toggle('active');
+      }
+      selectedMonths = [];
+      var tags = monthContainer.querySelectorAll('.tag');
+      for (var i = 0; i < tags.length; i++) {
+        if (tags[i].classList.contains('active')) selectedMonths.push(parseInt(tags[i].getAttribute('data-value')));
+      }
+      updateEstimate();
+    };
+    monthContainer.appendChild(tag);
+  }
+  updateEstimate();
+})();
+
+var seedMode = 'random';
+
+function selectSeedMode(el) {
+  var tags = document.getElementById('seedTags').querySelectorAll('.tag');
+  for (var i = 0; i < tags.length; i++) tags[i].classList.remove('active');
+  el.classList.add('active');
+  seedMode = el.getAttribute('data-value');
+  document.getElementById('seedValue').disabled = (seedMode !== 'fixed');
+}
+
+function getSelectedSeed() {
+  if (seedMode === 'fixed') return parseInt(document.getElementById('seedValue').value) || 42;
+  return Math.floor(Math.random() * 2147483647);
+}
+
+function calcMonthRecords(months) {
+  if (!PATTERNS || !PATTERNS.temporal_patterns || !PATTERNS.temporal_patterns.monthly_pattern) return {};
+  var mp = PATTERNS.temporal_patterns.monthly_pattern;
+  var result = {};
+  for (var i = 0; i < months.length; i++) {
+    var m = months[i];
+    var prob = mp[String(m)] || (1 / 12);
+    result[m] = Math.round(ANNUAL_TOTAL * prob);
+  }
+  return result;
+}
+
+function updateEstimate() {
+  var el = document.getElementById('recordEstimate');
+  el.textContent = '';
+  if (!PATTERNS) {
+    el.textContent = '\uD328\uD134 \uB370\uC774\uD130 \uB85C\uB529 \uC911...';
+    return;
+  }
+  if (selectedMonths.length === 0) {
+    el.textContent = '\uC6D4\uC744 \uD558\uB098 \uC774\uC0C1 \uC120\uD0DD\uD558\uC138\uC694.';
+    return;
+  }
+  var monthRecs = calcMonthRecords(selectedMonths);
+  var total = 0;
+  var parts = [];
+  for (var i = 0; i < selectedMonths.length; i++) {
+    var m = selectedMonths[i];
+    var cnt = monthRecs[m] || 0;
+    total += cnt;
+    parts.push(m + '\uC6D4 ' + cnt.toLocaleString() + '\uAC74');
+  }
+  var prefix = document.createTextNode('\uC608\uC0C1 \uC0DD\uC131\uB7C9: ');
+  var strong = document.createElement('strong');
+  strong.textContent = total.toLocaleString() + '\uAC74';
+  var suffix = document.createTextNode(' (' + parts.join(', ') + ')');
+  el.appendChild(prefix);
+  el.appendChild(strong);
+  el.appendChild(suffix);
+}
 
 var COLUMNS = [
-  'index_key','emorg_cd','pat_reg_no','vst_dt','vst_tm','pat_age_gr','pat_sex',
-  'pat_do_cd','vst_meth','ktas_fstu','ktas01','msypt','main_trt_p','emtrt_rust',
-  'otrm_dt','otrm_tm','ocur_dt','ocur_tm','vst_sbp','vst_dbp','vst_per_pu',
-  'vst_per_br','vst_bdht','vst_oxy','inpat_dt','inpat_tm','inpat_rust'
+  'index_key','ptmiemcd','ptmiidno','ptmiindt','ptmiintm','ptmibrtd','ptmisexx',
+  'ptmizipc','ptmiinmn','ptmikts1','ptmikpr1','ptmimnsy','ptmidept','ptmiemrt',
+  'ptmiotdt','ptmiottm','ptmiakdt','ptmiaktm','ptmihibp','ptmilobp','ptmipuls',
+  'ptmibrth','ptmibdht','ptmivoxs','ptmihsdt','ptmihstm','ptmidcrt'
 ];
 
 function showError(msg) {
@@ -106,35 +287,50 @@ function showError(msg) {
 }
 
 function startGeneration() {
-  var numRecords = parseInt(document.getElementById('numRecords').value) || 10000;
-  var targetYear = parseInt(document.getElementById('targetYear').value) || 2018;
-  var seed = parseInt(document.getElementById('randomSeed').value) || 42;
+  if (selectedMonths.length === 0) { showError('\uC6D4\uC744 \uD558\uB098 \uC774\uC0C1 \uC120\uD0DD\uD558\uC138\uC694.'); return; }
 
-  if (numRecords < 1 || numRecords > 1000000) { showError('Records: 1 ~ 1,000,000'); return; }
+  var monthRecords = calcMonthRecords(selectedMonths);
+  var totalRecords = 0;
+  for (var i = 0; i < selectedMonths.length; i++) totalRecords += monthRecords[selectedMonths[i]];
+
+  if (totalRecords < 1) { showError('\uC0DD\uC131\uD560 \uAC74\uC218\uAC00 0\uC785\uB2C8\uB2E4.'); return; }
+
+  var seed = getSelectedSeed();
 
   document.getElementById('errorMsg').style.display = 'none';
   document.getElementById('btnGenerate').disabled = true;
   document.getElementById('progressWrap').style.display = 'block';
   document.getElementById('progressFill').style.width = '0%';
-  document.getElementById('progressText').textContent = 'Initializing workers...';
+  document.getElementById('progressText').textContent = '\uC6CC\uCEE4 \uCD08\uAE30\uD654 \uC911...';
   document.getElementById('resultsSection').style.display = 'none';
 
-  // Kill old workers
   activeWorkers.forEach(function(w) { w.terminate(); });
   activeWorkers = [];
 
-  var numWorkers = Math.min(navigator.hardwareConcurrency || 4, 8, Math.ceil(numRecords / 500));
+  // Build month-chunk work items
+  var workItems = [];
+  for (var i = 0; i < selectedMonths.length; i++) {
+    var m = selectedMonths[i];
+    workItems.push({ month: m, numRecords: monthRecords[m] });
+  }
+
+  var numWorkers = Math.min(navigator.hardwareConcurrency || 4, 8, workItems.length);
   var startTime = performance.now();
 
-  // Split work
-  var chunks = [];
-  var base = Math.floor(numRecords / numWorkers);
-  var remainder = numRecords % numWorkers;
-  var offsetId = 0;
-  for (var i = 0; i < numWorkers; i++) {
-    var chunkSize = base + (i < remainder ? 1 : 0);
-    chunks.push({ chunkSize: chunkSize, offsetId: offsetId, workerIdx: i, seed: seed + i * 1000000 });
-    offsetId += chunkSize;
+  // Distribute month-chunks across workers
+  var workerJobs = [];
+  for (var w = 0; w < numWorkers; w++) workerJobs.push([]);
+  for (var i = 0; i < workItems.length; i++) {
+    workerJobs[i % numWorkers].push(workItems[i]);
+  }
+
+  // Compute offsetIds
+  var runningOffset = 0;
+  for (var w = 0; w < numWorkers; w++) {
+    for (var j = 0; j < workerJobs[w].length; j++) {
+      workerJobs[w][j].offsetId = runningOffset;
+      runningOffset += workerJobs[w][j].numRecords;
+    }
   }
 
   var results = new Array(numWorkers);
@@ -163,15 +359,15 @@ function startGeneration() {
           results[idx] = msg.data;
           completed++;
           if (completed === numWorkers) {
-            // Merge results
             var merged = [];
             for (var j = 0; j < numWorkers; j++) {
               for (var k = 0; k < results[j].length; k++) merged.push(results[j][k]);
             }
             var elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
             generatedData = merged;
+            hasGenerated = true;
             document.getElementById('progressFill').style.width = '100%';
-            document.getElementById('progressText').textContent = 'Done in ' + elapsed + 's (' + numWorkers + ' workers)';
+            document.getElementById('progressText').textContent = elapsed + '\uCD08 \uC644\uB8CC (' + numWorkers + '\uAC1C \uC6CC\uCEE4)';
             document.getElementById('btnGenerate').disabled = false;
             showResults(merged, elapsed, numWorkers);
             activeWorkers.forEach(function(wk) { wk.terminate(); });
@@ -179,13 +375,15 @@ function startGeneration() {
             URL.revokeObjectURL(blobUrl);
           }
         } else if (msg.type === 'error') {
-          showError('Worker ' + idx + ': ' + msg.message);
+          showError('\uC6CC\uCEE4 ' + idx + ': ' + msg.message);
           document.getElementById('btnGenerate').disabled = false;
         }
       };
       w.postMessage({
-        patterns: PATTERNS, numRecords: chunks[idx].chunkSize,
-        targetYear: targetYear, seed: chunks[idx].seed, offsetId: chunks[idx].offsetId
+        patterns: PATTERNS,
+        targetYear: selectedYear,
+        seed: seed + idx * 1000000,
+        monthChunks: workerJobs[idx]
       });
     })(i);
   }
@@ -201,8 +399,8 @@ function showResults(data, elapsed, numWorkers) {
   var sexCounts = { '1': 0, '2': 0 };
   for (var i = 0; i < n; i++) {
     var r = data[i];
-    ktasCounts[r.ktas_fstu] = (ktasCounts[r.ktas_fstu] || 0) + 1;
-    sexCounts[r.pat_sex] = (sexCounts[r.pat_sex] || 0) + 1;
+    ktasCounts[r.ptmikts1] = (ktasCounts[r.ptmikts1] || 0) + 1;
+    sexCounts[r.ptmisexx] = (sexCounts[r.ptmisexx] || 0) + 1;
   }
   var ktasStr = ['1','2','3','4','5'].map(function(k) {
     return k + '(' + ((ktasCounts[k]||0)/n*100).toFixed(1) + '%)';
@@ -210,9 +408,9 @@ function showResults(data, elapsed, numWorkers) {
 
   statsGrid.textContent = '';
   var stats = [
-    {l:'Total:', v: n.toLocaleString()},
-    {l:'Time:', v: elapsed + 's / ' + numWorkers + ' workers'},
-    {l:'Sex:', v: 'M ' + ((sexCounts['1']/n)*100).toFixed(1) + '% / F ' + ((sexCounts['2']/n)*100).toFixed(1) + '%'},
+    {l:'\uCD1D \uAC74\uC218:', v: n.toLocaleString()},
+    {l:'\uC18C\uC694 \uC2DC\uAC04:', v: elapsed + '\uCD08 / ' + numWorkers + '\uAC1C \uC6CC\uCEE4'},
+    {l:'\uC131\uBCC4:', v: '\uB0A8 ' + ((sexCounts['1']/n)*100).toFixed(1) + '% / \uC5EC ' + ((sexCounts['2']/n)*100).toFixed(1) + '%'},
     {l:'KTAS:', v: ktasStr}
   ];
   stats.forEach(function(s) {
@@ -258,12 +456,14 @@ function downloadCSV() {
     if (batch.length >= 10000) { parts.push(batch.join('\n') + '\n'); batch = []; }
   }
   if (batch.length > 0) parts.push(batch.join('\n') + '\n');
-  downloadFile(new Blob(parts, {type:'text/csv'}), 'nedis_synthetic.csv');
+  var monthStr = selectedMonths.map(function(m) { return 'm' + m; }).join('_');
+  downloadFile(new Blob(parts, {type:'text/csv'}), 'nedis_synthetic_' + selectedYear + '_' + monthStr + '.csv');
 }
 
 function downloadJSON() {
   if (!generatedData) return;
-  downloadFile(new Blob([JSON.stringify(generatedData)], {type:'application/json'}), 'nedis_synthetic.json');
+  var monthStr = selectedMonths.map(function(m) { return 'm' + m; }).join('_');
+  downloadFile(new Blob([JSON.stringify(generatedData)], {type:'application/json'}), 'nedis_synthetic_' + selectedYear + '_' + monthStr + '.json');
 }
 
 function downloadFile(blob, filename) {
@@ -274,16 +474,573 @@ function downloadFile(blob, filename) {
   URL.revokeObjectURL(a.href);
 }
 
+function downloadCodebook() {
+  var txt = [
+'================================================================================',
+'  NEDIS 4.0 합성 데이터 코드북 (v20260305)',
+'  27개 출력 변수 정의 및 코드값 설명',
+'================================================================================',
+'',
+'  본 코드북은 NEDIS 합성 데이터 생성기가 출력하는 27개 변수에 대한 설명입니다.',
+'  원본: 국가응급진료정보망(NEDIS) 4.0 표준등록체계 구축 및 입력 지침서',
+'  테이블: EMIHPTMI (응급환자 진료내역)',
+'',
+'--------------------------------------------------------------------------------',
+'  # 변수 목록 요약',
+'--------------------------------------------------------------------------------',
+'',
+'  No  칼럼ID      한글명            타입   길이  설명',
+'  --  ----------  ----------------  ----   ----  -------------------------',
+'   1  index_key   색인키            복합키   -    SYNTH_ + 일련번호',
+'   2  ptmiemcd    응급의료기관코드   C       8    중앙응급의료센터 부여 코드',
+'   3  ptmiidno    의무기록번호       C      12    비식별화 처리',
+'   4  ptmiindt    내원일자           C       8    YYYYMMDD',
+'   5  ptmiintm    내원시간           C       4    HH24MM (0000~2359)',
+'   6  ptmibrtd    환자연령군         C       2    10세 단위 연령군 코드',
+'   7  ptmisexx    성별               N       1    1:남, 2:여',
+'   8  ptmizipc    환자시도코드       C       2    행정구역 시도 코드',
+'   9  ptmiinmn    내원수단           C       2    이동수단 코드',
+'  10  ptmikts1    최초중증도분류결과  C       1    KTAS 1~5등급',
+'  11  ptmikpr1    최초중증도분류과정  C       6    KTAS 분류 과정 코드',
+'  12  ptmimnsy    주증상             C       8    UMLS 기반 주증상 코드',
+'  13  ptmidept    주 진료과          C       2    진료과 코드',
+'  14  ptmiemrt    응급진료결과       C       2    귀가/전원/입원/사망 등',
+'  15  ptmiotdt    퇴실일자           C       8    YYYYMMDD',
+'  16  ptmiottm    퇴실시간           C       4    HH24MM',
+'  17  ptmiakdt    발병일자           C       8    YYYYMMDD (미상:11111111)',
+'  18  ptmiaktm    발병시간           C       4    HH24MM (미상:1111)',
+'  19  ptmihibp    수축기혈압         N       3    mmHg (-1:미측정)',
+'  20  ptmilobp    이완기혈압         N       3    mmHg (-1:미측정)',
+'  21  ptmipuls    맥박수             N       3    회/분 (-1:미측정)',
+'  22  ptmibrth    호흡수             N       3    회/분 (-1:미측정)',
+'  23  ptmibdht    체온               N     3.1    ℃ (-1:미측정)',
+'  24  ptmivoxs    산소포화도         N       3    % (-1:미측정)',
+'  25  ptmihsdt    입원일자           C       8    YYYYMMDD (비입원시 공란)',
+'  26  ptmihstm    입원시간           C       4    HH24MM (비입원시 공란)',
+'  27  ptmidcrt    입원후결과         C       2    퇴원결과코드 (비입원시 공란)',
+'',
+'',
+'================================================================================',
+'  # 상세 코드값 정의',
+'================================================================================',
+'',
+'',
+'  [ptmibrtd] 환자연령군 ─────────────────────────────────────────────────────────',
+'',
+'    코드  설명',
+'    ----  ----------------------',
+'    01    영아 (0~1세)',
+'    09    소아 (2~9세)',
+'    10    10대 (10~19세)',
+'    20    20대 (20~29세)',
+'    30    30대 (30~39세)',
+'    40    40대 (40~49세)',
+'    50    50대 (50~59세)',
+'    60    60대 (60~69세)',
+'    70    70대 (70~79세)',
+'    80    80대 (80~89세)',
+'    90    90대 이상',
+'    99    미상',
+'',
+'',
+'  [ptmisexx] 성별 ───────────────────────────────────────────────────────────────',
+'',
+'    코드  설명',
+'    ----  ----------------------',
+'    1     남자 (주민번호 7번째 자리 1,3)',
+'    2     여자 (주민번호 7번째 자리 2,4)',
+'',
+'',
+'  [ptmizipc] 환자시도코드 ───────────────────────────────────────────────────────',
+'',
+'    코드  설명',
+'    ----  ----------------------',
+'    11    서울특별시',
+'    21    부산광역시',
+'    22    대구광역시',
+'    23    인천광역시',
+'    24    광주광역시',
+'    25    대전광역시',
+'    26    울산광역시',
+'    29    세종특별자치시',
+'    31    경기도',
+'    32    강원도(강원특별자치도)',
+'    33    충청북도',
+'    34    충청남도',
+'    35    전라북도(전북특별자치도)',
+'    36    전라남도',
+'    37    경상북도',
+'    38    경상남도',
+'    39    제주특별자치도',
+'',
+'',
+'  [ptmiinmn] 내원수단 ──────────────────────────────────────────────────────────',
+'',
+'    코드  설명',
+'    ----  ----------------------',
+'    10    119 구급차',
+'    20    의료기관 구급차',
+'    30    기타 구급차 (민간이송, 산업체 등)',
+'    40    경찰차 등 공공차량',
+'    50    소방헬기',
+'    51    응급의료 전용헬기 (닥터헬기)',
+'    52    기타 항공이송',
+'    60    기타 자동차 (자가용, 택시 등)',
+'    70    도보',
+'    88    기타 (오토바이, 자전거, 휠체어 등)',
+'    99    미상',
+'',
+'    * 패턴 데이터에서 1자리로 축약된 경우:',
+'      1→10(119), 2→20(의료기관), 3→30(기타구급차),',
+'      4→40(공공차량), 5→50(헬기), 6→60(기타차량),',
+'      7→70(도보), 8→88(기타), 9→99(미상)',
+'',
+'',
+'  [ptmikts1] 최초 중증도 분류 결과 (KTAS) ──────────────────────────────────────',
+'',
+'    코드  설명                  색상기준',
+'    ----  --------------------  --------',
+'    1     즉각 (Immediate)      빨강',
+'    2     긴급 (Emergent)       주황',
+'    3     응급 (Urgent)         노랑',
+'    4     준응급 (Less Urgent)  초록',
+'    5     비응급 (Non-Urgent)   파랑',
+'    8     기타 (진료 외 방문)',
+'',
+'',
+'  [ptmidept] 주 진료과 ─────────────────────────────────────────────────────────',
+'',
+'    코드  설명              코드  설명',
+'    ----  ----------------  ----  ----------------',
+'    AA    가정의학과         AB    감염내과',
+'    AC    내분비내과         AD    류마티스내과',
+'    AE    소화기내과         AF    수혈의학과',
+'    AG    순환기내과         AH    신장내과',
+'    AI    알레르기내과       AZ    일반내과',
+'    BA    신경외과           BB    소아외과',
+'    BC    성형외과           BD    외과(일반외과)',
+'    BE    정형외과           BF    흉부외과',
+'    BX    기타외과           DA    소아청소년과',
+'    EA    마취통증의학과     FA    비뇨의학과',
+'    GA    산부인과           HA    안과',
+'    HB    이비인후과         IA    응급의학과',
+'    JA    진단검사의학과     KA    재활의학과',
+'    LA    피부과             NA    신경과',
+'    PA    정신건강의학과     QA    영상의학과',
+'    RA    치과               XX    기타',
+'    -     미입력/해당없음',
+'',
+'',
+'  [ptmiemrt] 응급진료결과 ──────────────────────────────────────────────────────',
+'',
+'    【10번대: 귀가】',
+'    코드  설명',
+'    ----  ----------------------',
+'    11    증상 호전 귀가',
+'    12    말기질환 귀가 (가정간호 등)',
+'    13    가망 없는 퇴실 (hopeless discharge)',
+'    14    자의 퇴실 (환자/보호자 요청)',
+'    15    외래방문 후 귀가 또는 입원',
+'    18    기타 귀가 (재활원, 시설 등)',
+'',
+'    【20번대: 전원】',
+'    코드  설명',
+'    ----  ----------------------',
+'    21    병실 부족 전원',
+'    22    중환자실 부족 전원',
+'    23    응급수술/처치 불가 전원',
+'    24    전문 응급의료 필요 전원',
+'    25    경증 전원',
+'    26    요양병원 전원',
+'    27    환자/보호자 사정 전원',
+'    28    기타 전원',
+'    29    회송 (원래 기관으로 복귀)',
+'',
+'    【30번대: 입원】',
+'    코드  설명',
+'    ----  ----------------------',
+'    31    병실 입원',
+'    32    중환자실 입원',
+'    33    수술실 → 병실 입원',
+'    34    수술실 → 중환자실 입원',
+'    38    기타 입원',
+'',
+'    【40번대: 사망】',
+'    코드  설명',
+'    ----  ----------------------',
+'    41    DOA (검안 필요, 치료대상 아님)',
+'    42    내원시 심정지, CPR 미시행 사망',
+'    43    내원시 심정지, CPR 시행 후 사망',
+'    44    내원시 생존, CPR 시행 후 사망',
+'    45    내원시 생존, CPR 미시행 사망',
+'    48    기타 사망 (Table Death 등)',
+'',
+'    【기타】',
+'    코드  설명',
+'    ----  ----------------------',
+'    88    기타 (환자 실종, 경찰 연행 등)',
+'    99    미상',
+'',
+'',
+'  [ptmidcrt] 입원 후 결과 ─────────────────────────────────────────────────────',
+'',
+'    응급실 경유 입원 환자의 퇴원 시 결과.',
+'    비입원 환자는 공란.',
+'',
+'',
+'  [활력징후] ptmihibp, ptmilobp, ptmipuls, ptmibrth, ptmibdht, ptmivoxs ────────',
+'',
+'    항목         단위    정상범위(성인)         특수값',
+'    -----------  ------  --------------------  --------',
+'    수축기혈압   mmHg    90~140                -1:미측정',
+'    이완기혈압   mmHg    60~90                 -1:미측정',
+'    맥박수       회/분   60~100                -1:미측정',
+'    호흡수       회/분   12~20                 -1:미측정',
+'    체온         ℃       36.0~37.5             -1:미측정',
+'    산소포화도   %       95~100                -1:미측정',
+'',
+'    * DOA(응급진료결과 41)의 활력징후는 0으로 입력 (측정값 있으면 측정값)',
+'    * 허용범위: 혈압 0~300, 맥박 0~300, 호흡 0~99, 체온 0~45, 산소포화도 0~100',
+'',
+'',
+'================================================================================',
+'  # 데이터 규칙',
+'================================================================================',
+'',
+'  1. Primary Key: ptmiemcd + ptmiidno + ptmiindt + ptmiintm',
+'  2. NN(Not Null) 필드에 빈 값: 문자형 "-", 숫자형 바이트수만큼 "9"',
+'  3. 발병일시 모두 미상: 일자 "11111111", 시간 "1111"',
+'  4. 합성 데이터 식별: index_key가 "SYNTH_"로 시작',
+'',
+'================================================================================',
+'  Generated by NEDIS Synthetic Data Generator v20260305',
+'================================================================================'
+  ].join('\n');
+  downloadFile(new Blob([txt], {type:'text/plain;charset=utf-8'}), 'NEDIS_codebook_v20260305.txt');
+}
+
 // ============================================================
-// WEB WORKER CODE — optimized with precompiled pattern caches
+// VISUALIZATION
+// ============================================================
+function renderVisualization() {
+  if (!generatedData || !generatedData.length) return;
+  var btn = document.getElementById('btnViz');
+  btn.disabled = true;
+  btn.textContent = '생성 중...';
+  var vizSection = document.getElementById('vizSection');
+  vizSection.style.display = 'block';
+  var status = document.getElementById('vizStatus');
+  status.textContent = '차트 생성 중...';
+
+  setTimeout(function() {
+    var grid = document.getElementById('vizGrid');
+    grid.textContent = '';
+    var data = generatedData;
+    var n = data.length;
+
+    // --- helpers ---
+    var COLORS = ['#2563eb','#dc2626','#16a34a','#ea580c','#7c3aed','#0891b2','#be185d','#65a30d','#a16207','#4f46e5'];
+    var ACCENT = '#2563eb';
+    var MUTED = '#999';
+    var DPR = window.devicePixelRatio || 1;
+
+    function makeCanvas(w, h) {
+      var c = document.createElement('canvas');
+      c.width = w * DPR; c.height = h * DPR;
+      c.style.width = w + 'px'; c.style.height = h + 'px';
+      var ctx = c.getContext('2d');
+      ctx.scale(DPR, DPR);
+      return { canvas: c, ctx: ctx, w: w, h: h };
+    }
+
+    function addPanel(title, canvas) {
+      var panel = document.createElement('div');
+      panel.className = 'viz-panel';
+      var h3 = document.createElement('h3');
+      h3.textContent = title;
+      panel.appendChild(h3);
+      panel.appendChild(canvas);
+      grid.appendChild(panel);
+    }
+
+    // --- bar chart ---
+    function drawBar(ctx, w, h, labels, values, title, colors) {
+      var maxVal = Math.max.apply(null, values) || 1;
+      var padL = 50, padR = 15, padT = 10, padB = 40;
+      var barW = Math.min(40, (w - padL - padR) / labels.length * 0.7);
+      var gap = (w - padL - padR) / labels.length;
+      var chartH = h - padT - padB;
+
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+
+      // grid lines
+      ctx.strokeStyle = '#eee'; ctx.lineWidth = 1;
+      for (var g = 0; g <= 4; g++) {
+        var gy = padT + chartH - (chartH * g / 4);
+        ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+        ctx.fillStyle = MUTED; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+        ctx.fillText(Math.round(maxVal * g / 4).toLocaleString(), padL - 5, gy + 3);
+      }
+
+      // bars
+      for (var i = 0; i < labels.length; i++) {
+        var bh = (values[i] / maxVal) * chartH;
+        var bx = padL + gap * i + (gap - barW) / 2;
+        var by = padT + chartH - bh;
+        ctx.fillStyle = colors ? colors[i % colors.length] : ACCENT;
+        ctx.fillRect(bx, by, barW, bh);
+
+        // value on top
+        ctx.fillStyle = '#333'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+        if (values[i] > 0) {
+          var pct = (values[i] / n * 100).toFixed(1) + '%';
+          ctx.fillText(pct, bx + barW / 2, by - 3);
+        }
+
+        // label
+        ctx.fillStyle = '#333'; ctx.font = '10px monospace';
+        ctx.save(); ctx.translate(bx + barW / 2, h - padB + 12);
+        if (labels[i].length > 5) { ctx.rotate(-0.5); ctx.textAlign = 'right'; }
+        else { ctx.textAlign = 'center'; }
+        ctx.fillText(labels[i], 0, 0);
+        ctx.restore();
+      }
+    }
+
+    // --- histogram ---
+    function drawHist(ctx, w, h, arr, bins, unit) {
+      var clean = [];
+      for (var i = 0; i < arr.length; i++) { var v = arr[i]; if (v != null && v !== '' && v !== -1 && !isNaN(v)) clean.push(+v); }
+      if (!clean.length) { ctx.fillStyle = MUTED; ctx.font = '12px monospace'; ctx.fillText('데이터 없음', w / 2 - 30, h / 2); return; }
+      clean.sort(function(a, b) { return a - b; });
+      var mn = clean[0], mx = clean[clean.length - 1];
+      if (mn === mx) mx = mn + 1;
+      var binW = (mx - mn) / bins;
+      var counts = new Array(bins).fill(0);
+      for (var i = 0; i < clean.length; i++) {
+        var bi = Math.min(Math.floor((clean[i] - mn) / binW), bins - 1);
+        counts[bi]++;
+      }
+      var maxC = Math.max.apply(null, counts) || 1;
+      var padL = 50, padR = 15, padT = 10, padB = 35;
+      var chartW = w - padL - padR, chartH = h - padT - padB;
+      var bw = chartW / bins;
+
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+
+      // grid
+      ctx.strokeStyle = '#eee'; ctx.lineWidth = 1;
+      for (var g = 0; g <= 4; g++) {
+        var gy = padT + chartH - (chartH * g / 4);
+        ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+        ctx.fillStyle = MUTED; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+        ctx.fillText(Math.round(maxC * g / 4).toLocaleString(), padL - 5, gy + 3);
+      }
+
+      // bars
+      for (var i = 0; i < bins; i++) {
+        var bh = (counts[i] / maxC) * chartH;
+        var bx = padL + bw * i;
+        ctx.fillStyle = ACCENT; ctx.globalAlpha = 0.75;
+        ctx.fillRect(bx + 1, padT + chartH - bh, bw - 2, bh);
+        ctx.globalAlpha = 1;
+      }
+
+      // x labels
+      ctx.fillStyle = '#333'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+      var step = Math.max(1, Math.floor(bins / 6));
+      for (var i = 0; i <= bins; i += step) {
+        var lbl = (mn + binW * i).toFixed(unit === '℃' ? 1 : 0);
+        ctx.fillText(lbl + (unit || ''), padL + bw * i, h - padB + 14);
+      }
+    }
+
+    // --- hourly line chart ---
+    function drawHourly(ctx, w, h, data) {
+      var hours = new Array(24).fill(0);
+      for (var i = 0; i < data.length; i++) {
+        var tm = data[i].ptmiintm;
+        if (tm && tm.length >= 2) hours[parseInt(tm.substring(0, 2)) || 0]++;
+      }
+      var maxH = Math.max.apply(null, hours) || 1;
+      var padL = 50, padR = 15, padT = 15, padB = 35;
+      var chartW = w - padL - padR, chartH = h - padT - padB;
+
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+
+      // grid
+      ctx.strokeStyle = '#eee'; ctx.lineWidth = 1;
+      for (var g = 0; g <= 4; g++) {
+        var gy = padT + chartH - (chartH * g / 4);
+        ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+        ctx.fillStyle = MUTED; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+        ctx.fillText(Math.round(maxH * g / 4).toLocaleString(), padL - 5, gy + 3);
+      }
+
+      // area fill
+      ctx.beginPath();
+      ctx.moveTo(padL, padT + chartH);
+      for (var i = 0; i < 24; i++) {
+        var x = padL + (chartW / 23) * i;
+        var y = padT + chartH - (hours[i] / maxH) * chartH;
+        ctx.lineTo(x, y);
+      }
+      ctx.lineTo(padL + chartW, padT + chartH);
+      ctx.closePath();
+      ctx.fillStyle = ACCENT; ctx.globalAlpha = 0.1; ctx.fill(); ctx.globalAlpha = 1;
+
+      // line
+      ctx.beginPath();
+      ctx.strokeStyle = ACCENT; ctx.lineWidth = 2;
+      for (var i = 0; i < 24; i++) {
+        var x = padL + (chartW / 23) * i;
+        var y = padT + chartH - (hours[i] / maxH) * chartH;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // dots + labels
+      for (var i = 0; i < 24; i++) {
+        var x = padL + (chartW / 23) * i;
+        var y = padT + chartH - (hours[i] / maxH) * chartH;
+        ctx.fillStyle = ACCENT;
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#333'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(String(i), x, h - padB + 14);
+      }
+    }
+
+    // --- daily bar chart ---
+    function drawDaily(ctx, w, h, data) {
+      var days = {};
+      for (var i = 0; i < data.length; i++) {
+        var dt = data[i].ptmiindt;
+        if (dt) days[dt] = (days[dt] || 0) + 1;
+      }
+      var sorted = Object.keys(days).sort();
+      var vals = sorted.map(function(k) { return days[k]; });
+      var maxV = Math.max.apply(null, vals) || 1;
+      var padL = 50, padR = 15, padT = 10, padB = 35;
+      var chartW = w - padL - padR, chartH = h - padT - padB;
+      var bw = Math.max(1, chartW / sorted.length);
+
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+
+      // grid
+      ctx.strokeStyle = '#eee'; ctx.lineWidth = 1;
+      for (var g = 0; g <= 4; g++) {
+        var gy = padT + chartH - (chartH * g / 4);
+        ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+        ctx.fillStyle = MUTED; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+        ctx.fillText(Math.round(maxV * g / 4).toLocaleString(), padL - 5, gy + 3);
+      }
+
+      // bars
+      for (var i = 0; i < sorted.length; i++) {
+        var bh = (vals[i] / maxV) * chartH;
+        ctx.fillStyle = ACCENT; ctx.globalAlpha = 0.7;
+        ctx.fillRect(padL + bw * i, padT + chartH - bh, Math.max(1, bw - 1), bh);
+        ctx.globalAlpha = 1;
+      }
+
+      // x labels (sparse)
+      ctx.fillStyle = '#333'; ctx.font = '9px monospace'; ctx.textAlign = 'center';
+      var labelStep = Math.max(1, Math.floor(sorted.length / 8));
+      for (var i = 0; i < sorted.length; i += labelStep) {
+        var lbl = sorted[i].substring(4, 6) + '/' + sorted[i].substring(6, 8);
+        ctx.fillText(lbl, padL + bw * i + bw / 2, h - padB + 14);
+      }
+    }
+
+    // ---- render charts ----
+    var panelEl = grid.parentElement;
+    var gridStyle = getComputedStyle(grid);
+    var gridGap = parseFloat(gridStyle.gap) || 24;
+    var gridCols = window.innerWidth > 700 ? 2 : 1;
+    var availW = (panelEl.clientWidth - (gridCols > 1 ? gridGap : 0)) / gridCols - 34;
+    var CW = Math.max(280, Math.min(500, Math.floor(availW)));
+    var CH = Math.round(CW * 0.52);
+
+    // 1. KTAS distribution
+    var ktasLabels = ['1','2','3','4','5'];
+    var ktasVals = [0,0,0,0,0];
+    for (var i = 0; i < n; i++) { var k = data[i].ptmikts1; var idx = ktasLabels.indexOf(String(k)); if (idx >= 0) ktasVals[idx]++; }
+    var c1 = makeCanvas(CW, CH);
+    drawBar(c1.ctx, CW, CH, ktasLabels.map(function(k) { return 'Level ' + k; }), ktasVals, 'KTAS', ['#dc2626','#ea580c','#eab308','#16a34a','#2563eb']);
+    addPanel('KTAS 중증도 분포', c1.canvas);
+
+    // 2. Gender
+    var sexLabels = ['남(1)', '여(2)'];
+    var sexVals = [0, 0];
+    for (var i = 0; i < n; i++) { sexVals[data[i].ptmisexx === '1' ? 0 : 1]++; }
+    var c2 = makeCanvas(CW, CH);
+    drawBar(c2.ctx, CW, CH, sexLabels, sexVals, '성별', ['#2563eb','#dc2626']);
+    addPanel('성별 분포', c2.canvas);
+
+    // 3. Age group
+    var ageCounts = {};
+    for (var i = 0; i < n; i++) { var a = data[i].ptmibrtd; ageCounts[a] = (ageCounts[a] || 0) + 1; }
+    var ageKeys = Object.keys(ageCounts).sort();
+    var ageVals = ageKeys.map(function(k) { return ageCounts[k]; });
+    var c3 = makeCanvas(CW, CH);
+    drawBar(c3.ctx, CW, CH, ageKeys, ageVals, '연령군', null);
+    addPanel('연령군 분포', c3.canvas);
+
+    // 4. Hourly pattern
+    var c4 = makeCanvas(CW, CH);
+    drawHourly(c4.ctx, CW, CH, data);
+    addPanel('시간대별 내원 (24h)', c4.canvas);
+
+    // 5. Daily volume
+    var c5 = makeCanvas(CW, CH);
+    drawDaily(c5.ctx, CW, CH, data);
+    addPanel('일별 내원 건수', c5.canvas);
+
+    // 6. Treatment result
+    var trCounts = {};
+    for (var i = 0; i < n; i++) { var t = data[i].ptmiemrt; trCounts[t] = (trCounts[t] || 0) + 1; }
+    var trKeys = Object.keys(trCounts).sort(function(a, b) { return trCounts[b] - trCounts[a]; });
+    var trVals = trKeys.map(function(k) { return trCounts[k]; });
+    var c6 = makeCanvas(CW, CH);
+    drawBar(c6.ctx, CW, CH, trKeys, trVals, '진료결과', COLORS);
+    addPanel('응급진료결과 분포', c6.canvas);
+
+    // 7. SBP histogram
+    var sbpArr = [];
+    for (var i = 0; i < n; i++) sbpArr.push(data[i].ptmihibp);
+    var c7 = makeCanvas(CW, CH);
+    drawHist(c7.ctx, CW, CH, sbpArr, 30, 'mmHg');
+    addPanel('수축기 혈압 분포', c7.canvas);
+
+    // 8. Body temperature histogram
+    var btArr = [];
+    for (var i = 0; i < n; i++) btArr.push(data[i].ptmibdht);
+    var c8 = makeCanvas(CW, CH);
+    drawHist(c8.ctx, CW, CH, btArr, 30, '℃');
+    addPanel('체온 분포', c8.canvas);
+
+    status.textContent = '차트 8개 생성 완료 (' + n.toLocaleString() + '건)';
+    btn.disabled = false;
+    btn.textContent = '분포 시각화';
+  }, 50);
+}
+
+// ============================================================
+// WEB WORKER CODE
 // ============================================================
 function workerMain() {
   self.onmessage = function(e) {
     try {
       var msg = e.data;
       var gen = new NEDISGenerator(msg.patterns, msg.seed);
-      var data = gen.generate(msg.numRecords, msg.targetYear, msg.offsetId || 0);
-      self.postMessage({ type: 'done', data: data });
+      var allRecords = [];
+      var monthChunks = msg.monthChunks;
+      for (var c = 0; c < monthChunks.length; c++) {
+        var chunk = monthChunks[c];
+        var records = gen.generate(chunk.numRecords, msg.targetYear, chunk.offsetId, chunk.month);
+        for (var r = 0; r < records.length; r++) allRecords.push(records[r]);
+      }
+      self.postMessage({ type: 'done', data: allRecords });
     } catch(err) {
       self.postMessage({ type: 'error', message: err.message || String(err) });
     }
@@ -293,9 +1050,6 @@ function workerMain() {
     self.postMessage({ type: 'progress', pct: Math.round(pct), label: label });
   }
 
-  // ========================================
-  // Seeded PRNG: xoshiro128**
-  // ========================================
   function SeededRNG(seed) {
     var s = seed >>> 0;
     function sm() { s = (s + 0x9e3779b9) | 0; var t = s ^ (s >>> 16); t = Math.imul(t, 0x21f0aaad); t ^= t >>> 15; t = Math.imul(t, 0x735a2d97); t ^= t >>> 15; return t >>> 0; }
@@ -313,16 +1067,12 @@ function workerMain() {
   SeededRNG.prototype.random = function() { return this._next() / 4294967296; };
   SeededRNG.prototype.randInt = function(min, max) { return min + Math.floor(this.random() * (max - min + 1)); };
 
-  // ========================================
-  // Pre-compiled distribution (items + cumulative Float64Array)
-  // ========================================
   function compileDist(dict) {
     var keys = Object.keys(dict);
     var n = keys.length;
     var cum = new Float64Array(n);
     cum[0] = dict[keys[0]];
     for (var i = 1; i < n; i++) cum[i] = cum[i-1] + dict[keys[i]];
-    // Normalize
     var total = cum[n-1];
     if (total > 0 && Math.abs(total - 1) > 0.001) {
       for (var i = 0; i < n; i++) cum[i] /= total;
@@ -332,7 +1082,6 @@ function workerMain() {
 
   function sampleCompiled(rng, cd) {
     var r = rng.random();
-    // Binary search on cumulative array
     var lo = 0, hi = cd.n - 1;
     while (lo < hi) {
       var mid = (lo + hi) >> 1;
@@ -371,9 +1120,6 @@ function workerMain() {
 
   function clamp(v, min, max) { return v < min ? min : (v > max ? max : v); }
 
-  // ========================================
-  // Pattern pre-compilation cache
-  // ========================================
   function PatternCache(patterns) {
     this.P = patterns;
     this._cache = {};
@@ -389,29 +1135,21 @@ function workerMain() {
     return cd;
   };
   PatternCache.prototype.compileDirect = function(dict) {
-    // For inline dicts not from patterns
     return compileDist(dict);
   };
 
-  // ========================================
-  // Hierarchical lookups
-  // ========================================
   function hierarchicalKtasLookup(ktasP, region, hospitalType, cache) {
     var key = region + '_' + hospitalType;
     var majorKey = region.substring(0, 2) + '_' + hospitalType;
     var d;
-    // Check detailed
     d = ktasP.detailed_patterns[key];
     if (d && Object.keys(d).length > 0) { var ck = 'ktas_d|' + key; if (!cache._cache[ck]) cache._cache[ck] = compileDist(d); return cache._cache[ck]; }
-    // Major
     d = ktasP.major_patterns[majorKey];
     if (d && Object.keys(d).length > 0) { var ck = 'ktas_m|' + majorKey; if (!cache._cache[ck]) cache._cache[ck] = compileDist(d); return cache._cache[ck]; }
-    // National
     if (ktasP.national_patterns && ktasP.national_patterns[hospitalType]) {
       d = ktasP.national_patterns[hospitalType];
       if (d && Object.keys(d).length > 0) { var ck = 'ktas_n|' + hospitalType; if (!cache._cache[ck]) cache._cache[ck] = compileDist(d); return cache._cache[ck]; }
     }
-    // Overall
     var ck = 'ktas_o';
     if (!cache._cache[ck]) cache._cache[ck] = compileDist(ktasP.overall_pattern);
     return cache._cache[ck];
@@ -430,9 +1168,6 @@ function workerMain() {
     return null;
   }
 
-  // ========================================
-  // Date/time helpers
-  // ========================================
   function formatDate(d) {
     var m = d.getMonth() + 1;
     var day = d.getDate();
@@ -444,31 +1179,24 @@ function workerMain() {
     return (h < 10 ? '0' : '') + h + (m < 10 ? '0' : '') + m;
   }
 
-  // ========================================
-  // NEDIS Generator (optimized)
-  // ========================================
   function NEDISGenerator(patterns, seed) {
     this.P = patterns;
     this.rng = new SeededRNG(seed);
     this.cache = new PatternCache(patterns);
 
-    // Pre-compile demographic dist
     this._demoDist = compileDist(patterns.demographic_patterns);
 
-    // Pre-compile regional dist (by total_visits)
     var rp = patterns.regional_patterns;
     var rKeys = Object.keys(rp).filter(function(k) { return k !== ''; });
     var rDict = {};
     for (var i = 0; i < rKeys.length; i++) rDict[rKeys[i]] = rp[rKeys[i]].total_visits;
     this._regionDist = compileDist(rDict);
 
-    // Pre-compile hourly/temporal distributions
     var tp = patterns.temporal_patterns;
     this._hourlyDist = tp.hourly_pattern ? compileDist(tp.hourly_pattern) : null;
     this._monthlyP = tp.monthly_pattern || {};
     this._weekdayP = tp.weekday_pattern || {};
 
-    // Pre-compile conditional temporal distributions
     this._condTemporalCache = {};
     var ctp = patterns.temporal_conditional_patterns;
     if (ctp) {
@@ -486,8 +1214,7 @@ function workerMain() {
     }
   }
 
-  NEDISGenerator.prototype.generate = function(n, year, offsetId) {
-    // Use columnar storage for hot fields during generation, convert to records at the end
+  NEDISGenerator.prototype.generate = function(n, year, offsetId, targetMonth) {
     var pat_age_gr = new Array(n);
     var pat_sex = new Array(n);
     var pat_do_cd = new Array(n);
@@ -502,7 +1229,7 @@ function workerMain() {
     var vst_dbp = new Int16Array(n);
     var vst_per_pu = new Int16Array(n);
     var vst_per_br = new Int16Array(n);
-    var vst_bdht = new Float32Array(n); // *10, stored as int
+    var vst_bdht = new Float32Array(n);
     var vst_oxy = new Int16Array(n);
     var vst_dt = new Array(n);
     var vst_tm = new Array(n);
@@ -514,8 +1241,7 @@ function workerMain() {
     var inpat_tm = new Array(n);
     var inpat_rust = new Array(n);
 
-    // Step 1: Demographics (batch)
-    progress(5, 'Demographics...');
+    progress(5, '\uC778\uAD6C\uD1B5\uACC4...');
     var demoSamples = batchSampleCompiled(this.rng, this._demoDist, n);
     var regionSamples = batchSampleCompiled(this.rng, this._regionDist, n);
     for (var i = 0; i < n; i++) {
@@ -526,8 +1252,7 @@ function workerMain() {
       pat_do_cd[i] = regionSamples[i];
     }
 
-    // Step 2: Hospital (cached compiled dists per region)
-    progress(15, 'Hospitals...');
+    progress(15, '\uBCD1\uC6D0 \uBC30\uC815...');
     var ha = this.P.hospital_allocation;
     var hospCache = {};
     for (var i = 0; i < n; i++) {
@@ -543,8 +1268,7 @@ function workerMain() {
       emorg_cd[i] = sampleCompiled(this.rng, hospCache[region]);
     }
 
-    // Step 3: Clinical independent (cached)
-    progress(25, 'Clinical attrs...');
+    progress(25, '\uC784\uC0C1 \uC18D\uC131...');
     var vmCache = {}, ccCache = {}, deptCache = {};
     var vm = this.P.visit_method_patterns;
     var cc = this.P.chief_complaint_patterns;
@@ -568,7 +1292,6 @@ function workerMain() {
       main_trt_p[i] = sampleCompiled(this.rng, deptCache[key]);
     }
 
-    // Step 4: KTAS
     progress(35, 'KTAS...');
     var ktasP = this.P.ktas_distributions;
     var ktasCache = {};
@@ -582,8 +1305,7 @@ function workerMain() {
       ktas01[i] = parseInt(kval) || 3;
     }
 
-    // Step 4b: Treatment result
-    progress(40, 'Treatment results...');
+    progress(40, '\uCE58\uB8CC \uACB0\uACFC...');
     var trp = this.P.treatment_result_patterns;
     var trKeys0 = Object.keys(trp)[0];
     var trCache = {};
@@ -593,45 +1315,40 @@ function workerMain() {
       emtrt_rust[i] = sampleCompiled(this.rng, trCache[trKey]);
     }
 
-    // Step 5: Vital signs
-    progress(50, 'Vital signs...');
+    progress(50, '\uD65C\uB825 \uC9D5\uD6C4...');
     this._genVitals(n, ktas_fstu, pat_age_gr, vst_sbp, vst_dbp, vst_per_pu, vst_per_br, vst_bdht, vst_oxy);
 
-    // Step 6: Date/Time
-    progress(65, 'Date/Time...');
-    this._assignDateTime2(n, year, pat_age_gr, pat_sex, ktas_fstu, vst_dt, vst_tm);
+    progress(65, '\uB0A0\uC9DC/\uC2DC\uAC04...');
+    this._assignDateTime2(n, year, targetMonth, pat_age_gr, pat_sex, ktas_fstu, vst_dt, vst_tm);
 
-    // Step 7: Time gaps
-    progress(80, 'Time gaps...');
+    progress(80, '\uC2DC\uAC04 \uAC04\uACA9...');
     this._genTimeGaps(n, ktas_fstu, emtrt_rust, vst_dt, vst_tm, ocur_dt, ocur_tm, otrm_dt, otrm_tm, inpat_dt, inpat_tm, inpat_rust);
 
-    // Step 8: Build records
-    progress(95, 'Building records...');
+    progress(95, '\uB808\uCF54\uB4DC \uC0DD\uC131...');
     var records = new Array(n);
     for (var i = 0; i < n; i++) {
       var bdht = vst_bdht[i];
       records[i] = {
         index_key: 'SYNTH_' + String(offsetId + i + 1).padStart(8, '0'),
-        emorg_cd: emorg_cd[i],
-        pat_reg_no: 'P' + String(this.rng.randInt(10000000, 99999999)),
-        vst_dt: vst_dt[i], vst_tm: vst_tm[i],
-        pat_age_gr: pat_age_gr[i], pat_sex: pat_sex[i], pat_do_cd: pat_do_cd[i],
-        vst_meth: vst_meth[i], ktas_fstu: ktas_fstu[i], ktas01: ktas01[i],
-        msypt: msypt[i], main_trt_p: main_trt_p[i], emtrt_rust: emtrt_rust[i],
-        otrm_dt: otrm_dt[i], otrm_tm: otrm_tm[i],
-        ocur_dt: ocur_dt[i], ocur_tm: ocur_tm[i],
-        vst_sbp: vst_sbp[i], vst_dbp: vst_dbp[i],
-        vst_per_pu: vst_per_pu[i], vst_per_br: vst_per_br[i],
-        vst_bdht: bdht === 0 ? -1 : Math.round(bdht * 10) / 10,
-        vst_oxy: vst_oxy[i],
-        inpat_dt: inpat_dt[i] || '', inpat_tm: inpat_tm[i] || '', inpat_rust: inpat_rust[i] || ''
+        ptmiemcd: emorg_cd[i],
+        ptmiidno: 'P' + String(this.rng.randInt(10000000, 99999999)),
+        ptmiindt: vst_dt[i], ptmiintm: vst_tm[i],
+        ptmibrtd: this._synthBirthdate(pat_age_gr[i], vst_dt[i]), ptmisexx: pat_sex[i], ptmizipc: this._synthZipcode(pat_do_cd[i]),
+        ptmiinmn: vst_meth[i], ptmikts1: ktas_fstu[i], ptmikpr1: ktas01[i],
+        ptmimnsy: msypt[i], ptmidept: main_trt_p[i], ptmiemrt: emtrt_rust[i],
+        ptmiotdt: otrm_dt[i], ptmiottm: otrm_tm[i],
+        ptmiakdt: ocur_dt[i], ptmiaktm: ocur_tm[i],
+        ptmihibp: vst_sbp[i], ptmilobp: vst_dbp[i],
+        ptmipuls: vst_per_pu[i], ptmibrth: vst_per_br[i],
+        ptmibdht: bdht === 0 ? -1 : Math.round(bdht * 10) / 10,
+        ptmivoxs: vst_oxy[i],
+        ptmihsdt: inpat_dt[i] || '', ptmihstm: inpat_tm[i] || '', ptmidcrt: inpat_rust[i] || ''
       };
     }
-    progress(100, 'Complete');
+    progress(100, '\uC644\uB8CC');
     return records;
   };
 
-  // ---- Vital signs (columnar) ----
   NEDISGenerator.prototype._genVitals = function(n, ktas, age, sbpArr, dbpArr, puArr, brArr, bdhtArr, oxyArr) {
     var measProb = { '1': 1.0, '2': 0.95, '3': 0.85, '4': 0.70, '5': 0.50 };
     var ageR = {
@@ -650,7 +1367,6 @@ function workerMain() {
       var mp = measProb[k] || 0.7;
       var ar = ageR[age[i]] || defAR;
 
-      // SBP/DBP
       if (rng.random() < mp) {
         var sbp;
         var r1 = rng.random(), r2 = rng.random();
@@ -661,7 +1377,6 @@ function workerMain() {
         dbpArr[i] = clamp(Math.round(sbp * (0.60 + rng.random() * 0.15) + normalSample(rng, 0, 5)), 30, sbp - 20);
       } else { sbpArr[i] = -1; dbpArr[i] = -1; }
 
-      // Pulse
       if (rng.random() < mp) {
         var r3 = rng.random(), r4 = rng.random();
         if (r3 < 0.06) puArr[i] = clamp(Math.round(normalSample(rng, 120, 20)), 100, 200);
@@ -669,7 +1384,6 @@ function workerMain() {
         else puArr[i] = clamp(Math.round(normalSample(rng, ar[4], ar[5])), 30, 200);
       } else { puArr[i] = -1; }
 
-      // Respiration
       if (rng.random() < mp * 0.9) {
         if (rng.random() < 0.05) {
           var af = age[i] === '01' ? 1.3 : (age[i] === '09' ? 1.2 : 1.0);
@@ -677,7 +1391,6 @@ function workerMain() {
         } else { brArr[i] = clamp(Math.round(normalSample(rng, ar[6], ar[7])), 8, 50); }
       } else { brArr[i] = -1; }
 
-      // Temperature
       if (rng.random() < mp * 0.8) {
         var temp;
         if (rng.random() < 0.12) {
@@ -690,9 +1403,8 @@ function workerMain() {
           temp = clamp(normalSample(rng, 34.5, 0.8), 32.0, 36.0);
         } else { temp = clamp(normalSample(rng, ar[8], ar[9]), 35.0, 37.5); }
         bdhtArr[i] = temp;
-      } else { bdhtArr[i] = 0; } // 0 = not measured, converted to -1 in record build
+      } else { bdhtArr[i] = 0; }
 
-      // SpO2
       if (rng.random() < mp * 0.7) {
         if (rng.random() < 0.04) {
           var sv2 = rng.random();
@@ -704,72 +1416,59 @@ function workerMain() {
     }
   };
 
-  // ---- Date/Time (optimized) ----
-  NEDISGenerator.prototype._assignDateTime2 = function(n, year, ages, sexes, ktasFstu, dtArr, tmArr) {
+  // Month-scoped date/time assignment
+  NEDISGenerator.prototype._assignDateTime2 = function(n, year, targetMonth, ages, sexes, ktasFstu, dtArr, tmArr) {
     var isLeap = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
-    var daysInYear = isLeap ? 366 : 365;
+    var daysInMonth = [0, 31, isLeap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    var numDays = daysInMonth[targetMonth];
 
-    // Pre-compute date strings and metadata
-    var dateStrs = new Array(daysInYear);
-    var dateMonths = new Int8Array(daysInYear);
-    var dateDows = new Int8Array(daysInYear);
-    var jsToPyDow = [6, 0, 1, 2, 3, 4, 5];
+    var dateStrs = new Array(numDays);
+    var dateDows = new Int8Array(numDays);
 
-    for (var d = 0; d < daysInYear; d++) {
-      var dt = new Date(year, 0, 1 + d);
+    for (var d = 0; d < numDays; d++) {
+      var dt = new Date(year, targetMonth - 1, 1 + d);
       var m = dt.getMonth() + 1;
       var day = dt.getDate();
       dateStrs[d] = String(year) + (m < 10 ? '0' : '') + m + (day < 10 ? '0' : '') + day;
-      dateMonths[d] = m;
-      dateDows[d] = jsToPyDow[dt.getDay()];
+      dateDows[d] = dt.getDay();
     }
 
-    // Compute daily volumes
-    var mp = this._monthlyP;
     var wp = this._weekdayP;
-    var mVals = Object.values(mp);
     var wVals = Object.values(wp);
-    var mMean = mVals.length > 0 ? mVals.reduce(function(a,b){return a+b},0) / 12 : 1/12;
-    var wMean = wVals.length > 0 ? wVals.reduce(function(a,b){return a+b},0) / 7 : 1/7;
+    var wMean = wVals.length > 0 ? wVals.reduce(function(a, b) { return a + b; }, 0) / 7 : 1 / 7;
 
-    var weights = new Float64Array(daysInYear);
+    var weights = new Float64Array(numDays);
     var totalW = 0;
-    for (var d = 0; d < daysInYear; d++) {
-      var mMult = (mp[String(dateMonths[d])] || mMean) / mMean;
+    for (var d = 0; d < numDays; d++) {
       var wMult = (wp[String(dateDows[d])] || wMean) / wMean;
-      weights[d] = mMult * wMult;
+      weights[d] = wMult;
       totalW += weights[d];
     }
 
-    // Build cumulative weight array for date sampling
     var rng = this.rng;
-    var cumWeights = new Float64Array(daysInYear);
+    var cumWeights = new Float64Array(numDays);
     cumWeights[0] = weights[0] / totalW;
-    for (var d = 1; d < daysInYear; d++) cumWeights[d] = cumWeights[d-1] + weights[d] / totalW;
+    for (var d = 1; d < numDays; d++) cumWeights[d] = cumWeights[d - 1] + weights[d] / totalW;
 
-    // Sample n dates via binary search on cumulative weights
-    var recMonth = new Int8Array(n);
     var recDow = new Int8Array(n);
     for (var i = 0; i < n; i++) {
       var r = rng.random();
-      var lo = 0, hi = daysInYear - 1;
+      var lo = 0, hi = numDays - 1;
       while (lo < hi) { var mid = (lo + hi) >> 1; if (cumWeights[mid] < r) lo = mid + 1; else hi = mid; }
       dtArr[i] = dateStrs[lo];
-      recMonth[i] = dateMonths[lo];
       recDow[i] = dateDows[lo];
     }
 
-    // Assign hours using cached conditional temporal dists
     var ctc = this._condTemporalCache;
     var hourlyD = this._hourlyDist;
 
     for (var i = 0; i < n; i++) {
       var hd = null;
       if (ctc.month_dow_hour) {
-        hd = ctc.month_dow_hour[recMonth[i] + '_' + recDow[i]];
+        hd = ctc.month_dow_hour[targetMonth + '|' + recDow[i]];
       }
       if (!hd && ctc.month_hour) {
-        hd = ctc.month_hour[String(recMonth[i])];
+        hd = ctc.month_hour[String(targetMonth)];
       }
       if (!hd && ctc.dow_hour) {
         hd = ctc.dow_hour[String(recDow[i])];
@@ -789,13 +1488,53 @@ function workerMain() {
     }
   };
 
-  // ---- Time gaps (optimized) ----
+  // 시도코드 → 우편번호 범위 매핑
+  var _PROVINCE_ZIP_RANGES = {
+    '11': [1000, 9999], '21': [46000, 49999], '22': [41000, 44999],
+    '23': [21000, 23999], '24': [61000, 62999], '25': [34000, 35999],
+    '26': [44000, 45999], '29': [58000, 59999], '31': [10000, 20999],
+    '32': [24000, 26999], '33': [27000, 29999], '34': [30000, 33999],
+    '35': [54000, 56999], '36': [57000, 60999], '37': [36000, 40999],
+    '38': [50000, 53999], '39': [63000, 63999]
+  };
+  // 연령군 코드 → 나이 범위
+  var _AGE_GROUP_RANGES = {
+    '01': [0, 0], '09': [1, 9], '10': [10, 19], '20': [20, 29],
+    '30': [30, 39], '40': [40, 49], '50': [50, 59], '60': [60, 69],
+    '70': [70, 79], '80': [80, 89], '90': [90, 99]
+  };
+  var _DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+  NEDISGenerator.prototype._synthBirthdate = function(ageGroup, visitDate) {
+    if (ageGroup === '99' || !_AGE_GROUP_RANGES[ageGroup]) return '99999999';
+    var visitYear = parseInt(visitDate.substring(0, 4)) || 2017;
+    var range = _AGE_GROUP_RANGES[ageGroup];
+    var birthYear;
+    if (ageGroup === '01') {
+      birthYear = this.rng.randInt(0, 2) === 0 ? visitYear - 1 : visitYear;
+    } else {
+      var age = this.rng.randInt(range[0], range[1] + 1);
+      birthYear = visitYear - age;
+    }
+    var m = this.rng.randInt(1, 13);
+    var dim = _DAYS_IN_MONTH.slice();
+    if (birthYear % 4 === 0 && (birthYear % 100 !== 0 || birthYear % 400 === 0)) dim[1] = 29;
+    var d = this.rng.randInt(1, dim[m - 1] + 1);
+    return String(birthYear).padStart(4, '0') + String(m).padStart(2, '0') + String(d).padStart(2, '0');
+  };
+
+  NEDISGenerator.prototype._synthZipcode = function(provinceCode) {
+    if (provinceCode === '99' || !_PROVINCE_ZIP_RANGES[provinceCode]) return '999999999999';
+    var r = _PROVINCE_ZIP_RANGES[provinceCode];
+    var zip5 = this.rng.randInt(r[0], r[1] + 1);
+    return String(zip5).padStart(5, '0') + '0000000';
+  };
+
   NEDISGenerator.prototype._genTimeGaps = function(n, ktas, result, vstDt, vstTm, ocDt, ocTm, otDt, otTm, inDt, inTm, inRust) {
     var compTime = this.P.comprehensive_time_patterns;
     var tgp = this.P.time_gap_patterns;
     var rng = this.rng;
 
-    // Pre-cache admission result distributions
     var admDists = {};
     var admProbs = {
       '1':{'1':0.3,'2':0.3,'3':0.1,'4':0.3},'2':{'1':0.4,'2':0.35,'3':0.15,'4':0.1},
@@ -804,7 +1543,6 @@ function workerMain() {
     };
     for (var k in admProbs) admDists[k] = compileDist(admProbs[k]);
 
-    // Gap param cache
     var gapParamCache = {};
     function getGapParams(kt, res, gapName) {
       var ck = kt + '|' + res + '|' + gapName;
@@ -831,7 +1569,6 @@ function workerMain() {
       var mn = parseInt(vstTm[i].substring(2, 4));
       var baseMs = new Date(yr, mo, dy, hr, mn).getTime();
 
-      // Incident gap
       var p1 = getGapParams(kt, res, 'incident_to_arrival');
       var incMin;
       if (p1 && p1.shape && p1.scale) incMin = lognormSample(rng, p1.shape, p1.loc||0, p1.scale);
@@ -841,7 +1578,6 @@ function workerMain() {
       ocDt[i] = formatDate(ocT);
       ocTm[i] = formatTime(ocT);
 
-      // ER stay
       var p2 = getGapParams(kt, res, 'er_stay');
       var erMin;
       if (p2 && p2.shape && p2.scale) erMin = lognormSample(rng, p2.shape, p2.loc||0, p2.scale);
@@ -851,7 +1587,6 @@ function workerMain() {
       otDt[i] = formatDate(otT);
       otTm[i] = formatTime(otT);
 
-      // Admission
       if (res === '31' || res === '32' || res === '33' || res === '34') {
         var p3 = getGapParams(kt, res, 'discharge_to_admission');
         var admMin;

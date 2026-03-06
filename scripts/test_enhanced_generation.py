@@ -210,8 +210,8 @@ def compare_with_original(db_path: str, synthetic_df: pd.DataFrame):
     conn = duckdb.connect(db_path)
     
     original_df = conn.execute("""
-        SELECT pat_age, pat_sex, ktas_lv, sbp, dbp, pr
-        FROM nedis_data
+        SELECT pat_age, ptmisexx, ktas_lv, sbp, dbp, pr
+        FROM nedis_original.emihptmi
         LIMIT 1000
     """).fetchdf()
     
@@ -232,9 +232,9 @@ def compare_with_original(db_path: str, synthetic_df: pd.DataFrame):
         })
     
     # Sex distribution
-    if 'pat_sex' in synthetic_df.columns and 'pat_sex' in original_df.columns:
-        orig_male_pct = (original_df['pat_sex'] == 'M').mean() * 100
-        synth_male_pct = (synthetic_df['pat_sex'] == 'M').mean() * 100
+    if 'ptmisexx' in synthetic_df.columns and 'ptmisexx' in original_df.columns:
+        orig_male_pct = (original_df['ptmisexx'] == '1').mean() * 100
+        synth_male_pct = (synthetic_df['ptmisexx'] == '1').mean() * 100
         comparisons.append({
             'metric': 'Male %',
             'original': f"{orig_male_pct:.1f}%",

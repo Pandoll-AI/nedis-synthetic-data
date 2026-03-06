@@ -74,7 +74,7 @@ class ComparisonDashboardEngine:
         try:
             # 원본 데이터 확인
             original_count = self.conn.execute(
-                "SELECT COUNT(*) FROM nedis2017"
+                "SELECT COUNT(*) FROM emihptmi"
             ).fetchone()[0]
             
             # 합성 데이터 확인 시도
@@ -130,17 +130,17 @@ class ComparisonDashboardEngine:
             
         try:
             # 테이블 선택
-            table_name = 'nedis2017' if data_type == 'original' else 'nedis_synthetic'
+            table_name = 'emihptmi' if data_type == 'original' else 'nedis_synthetic'
             
             # 연령 분포
             age_query = f"""
             SELECT 
-                pat_age_gr as age_group,
+                ptmibrtd as age_group,
                 COUNT(*) as count
             FROM {table_name}
-            WHERE pat_age_gr IS NOT NULL AND pat_age_gr != ''
-            GROUP BY pat_age_gr
-            ORDER BY pat_age_gr
+            WHERE ptmibrtd IS NOT NULL AND ptmibrtd != ''
+            GROUP BY ptmibrtd
+            ORDER BY ptmibrtd
             """
             
             age_data = self.conn.execute(age_query).fetchall()
@@ -148,12 +148,12 @@ class ComparisonDashboardEngine:
             # 성별 분포
             sex_query = f"""
             SELECT 
-                pat_sex as sex,
+                ptmisexx as sex,
                 COUNT(*) as count
             FROM {table_name}
-            WHERE pat_sex IS NOT NULL AND pat_sex != ''
-            GROUP BY pat_sex
-            ORDER BY pat_sex
+            WHERE ptmisexx IS NOT NULL AND ptmisexx != ''
+            GROUP BY ptmisexx
+            ORDER BY ptmisexx
             """
             
             sex_data = self.conn.execute(sex_query).fetchall()
@@ -161,11 +161,11 @@ class ComparisonDashboardEngine:
             # 지역 분포 (상위 20개)
             region_query = f"""
             SELECT 
-                pat_do_cd as region_code,
+                ptmizipc as region_code,
                 COUNT(*) as count
             FROM {table_name}
-            WHERE pat_do_cd IS NOT NULL AND pat_do_cd != ''
-            GROUP BY pat_do_cd
+            WHERE ptmizipc IS NOT NULL AND ptmizipc != ''
+            GROUP BY ptmizipc
             ORDER BY count DESC
             LIMIT 20
             """
@@ -197,17 +197,17 @@ class ComparisonDashboardEngine:
             self.connect_database()
             
         try:
-            table_name = 'nedis2017' if data_type == 'original' else 'nedis_synthetic'
+            table_name = 'emihptmi' if data_type == 'original' else 'nedis_synthetic'
             
             # KTAS 분포
             ktas_query = f"""
             SELECT 
-                ktas_no,
+                ptmikts1,
                 COUNT(*) as count
             FROM {table_name}
-            WHERE ktas_no IS NOT NULL AND ktas_no != '' AND ktas_no != '-'
-            GROUP BY ktas_no
-            ORDER BY ktas_no
+            WHERE ptmikts1 IS NOT NULL AND ptmikts1 != '' AND ptmikts1 != '-'
+            GROUP BY ptmikts1
+            ORDER BY ptmikts1
             """
             
             ktas_data = self.conn.execute(ktas_query).fetchall()
@@ -215,16 +215,16 @@ class ComparisonDashboardEngine:
             # 생체징후 평균값
             vitals_query = f"""
             SELECT 
-                AVG(CASE WHEN vst_sbp > 0 AND vst_sbp < 300 THEN vst_sbp END) as avg_sbp,
-                AVG(CASE WHEN vst_dbp > 0 AND vst_dbp < 200 THEN vst_dbp END) as avg_dbp,
-                AVG(CASE WHEN vst_per_pu > 0 AND vst_per_pu < 200 THEN vst_per_pu END) as avg_pulse,
-                AVG(CASE WHEN vst_per_br > 0 AND vst_per_br < 60 THEN vst_per_br END) as avg_respiration,
-                AVG(CASE WHEN vst_oxy > 0 AND vst_oxy <= 100 THEN vst_oxy END) as avg_oxygen,
-                COUNT(CASE WHEN vst_sbp > 0 AND vst_sbp < 300 THEN 1 END) as sbp_records,
-                COUNT(CASE WHEN vst_dbp > 0 AND vst_dbp < 200 THEN 1 END) as dbp_records,
-                COUNT(CASE WHEN vst_per_pu > 0 AND vst_per_pu < 200 THEN 1 END) as pulse_records,
-                COUNT(CASE WHEN vst_per_br > 0 AND vst_per_br < 60 THEN 1 END) as respiration_records,
-                COUNT(CASE WHEN vst_oxy > 0 AND vst_oxy <= 100 THEN 1 END) as oxygen_records
+                AVG(CASE WHEN ptmihibp > 0 AND ptmihibp < 300 THEN ptmihibp END) as avg_sbp,
+                AVG(CASE WHEN ptmilobp > 0 AND ptmilobp < 200 THEN ptmilobp END) as avg_dbp,
+                AVG(CASE WHEN ptmipuls > 0 AND ptmipuls < 200 THEN ptmipuls END) as avg_pulse,
+                AVG(CASE WHEN ptmibrth > 0 AND ptmibrth < 60 THEN ptmibrth END) as avg_respiration,
+                AVG(CASE WHEN ptmivoxs > 0 AND ptmivoxs <= 100 THEN ptmivoxs END) as avg_oxygen,
+                COUNT(CASE WHEN ptmihibp > 0 AND ptmihibp < 300 THEN 1 END) as sbp_records,
+                COUNT(CASE WHEN ptmilobp > 0 AND ptmilobp < 200 THEN 1 END) as dbp_records,
+                COUNT(CASE WHEN ptmipuls > 0 AND ptmipuls < 200 THEN 1 END) as pulse_records,
+                COUNT(CASE WHEN ptmibrth > 0 AND ptmibrth < 60 THEN 1 END) as respiration_records,
+                COUNT(CASE WHEN ptmivoxs > 0 AND ptmivoxs <= 100 THEN 1 END) as oxygen_records
             FROM {table_name}
             """
             
@@ -233,22 +233,22 @@ class ComparisonDashboardEngine:
             # KTAS별 생체징후 패턴
             ktas_vitals_query = f"""
             SELECT 
-                ktas_no,
-                AVG(CASE WHEN vst_sbp > 0 AND vst_sbp < 300 THEN vst_sbp END) as avg_sbp,
-                AVG(CASE WHEN vst_per_pu > 0 AND vst_per_pu < 200 THEN vst_per_pu END) as avg_pulse,
-                AVG(CASE WHEN vst_oxy > 0 AND vst_oxy <= 100 THEN vst_oxy END) as avg_oxygen,
+                ptmikts1,
+                AVG(CASE WHEN ptmihibp > 0 AND ptmihibp < 300 THEN ptmihibp END) as avg_sbp,
+                AVG(CASE WHEN ptmipuls > 0 AND ptmipuls < 200 THEN ptmipuls END) as avg_pulse,
+                AVG(CASE WHEN ptmivoxs > 0 AND ptmivoxs <= 100 THEN ptmivoxs END) as avg_oxygen,
                 COUNT(*) as count
             FROM {table_name}
-            WHERE ktas_no IS NOT NULL AND ktas_no != '' AND ktas_no != '-'
-            GROUP BY ktas_no
-            ORDER BY ktas_no
+            WHERE ptmikts1 IS NOT NULL AND ptmikts1 != '' AND ptmikts1 != '-'
+            GROUP BY ptmikts1
+            ORDER BY ptmikts1
             """
             
             ktas_vitals_data = self.conn.execute(ktas_vitals_query).fetchall()
             
             return {
                 'ktas_distribution': [
-                    {'ktas_no': row[0], 'count': row[1]} 
+                    {'ptmikts1': row[0], 'count': row[1]} 
                     for row in ktas_data
                 ],
                 'vital_signs_summary': {
@@ -267,7 +267,7 @@ class ComparisonDashboardEngine:
                 },
                 'ktas_vital_patterns': [
                     {
-                        'ktas_no': row[0],
+                        'ptmikts1': row[0],
                         'avg_sbp': round(row[1], 2) if row[1] else None,
                         'avg_pulse': round(row[2], 2) if row[2] else None,
                         'avg_oxygen': round(row[3], 2) if row[3] else None,
@@ -287,16 +287,16 @@ class ComparisonDashboardEngine:
             self.connect_database()
             
         try:
-            table_name = 'nedis2017' if data_type == 'original' else 'nedis_synthetic'
+            table_name = 'emihptmi' if data_type == 'original' else 'nedis_synthetic'
             
             # 월별 패턴
             monthly_query = f"""
             SELECT 
-                CAST(SUBSTR(vst_dt, 5, 2) AS INTEGER) as month,
+                CAST(SUBSTR(ptmiindt, 5, 2) AS INTEGER) as month,
                 COUNT(*) as count
             FROM {table_name}
-            WHERE vst_dt IS NOT NULL AND LENGTH(vst_dt) = 8
-            GROUP BY CAST(SUBSTR(vst_dt, 5, 2) AS INTEGER)
+            WHERE ptmiindt IS NOT NULL AND LENGTH(ptmiindt) = 8
+            GROUP BY CAST(SUBSTR(ptmiindt, 5, 2) AS INTEGER)
             ORDER BY month
             """
             
@@ -305,12 +305,12 @@ class ComparisonDashboardEngine:
             # 요일별 패턴 (날짜로부터 요일 계산)
             weekday_query = f"""
             SELECT 
-                DAYOFWEEK(CAST(vst_dt AS DATE)) as weekday,
+                DAYOFWEEK(CAST(ptmiindt AS DATE)) as weekday,
                 COUNT(*) as count
             FROM {table_name}
-            WHERE vst_dt IS NOT NULL AND LENGTH(vst_dt) = 8
-                AND TRY_CAST(vst_dt AS DATE) IS NOT NULL
-            GROUP BY DAYOFWEEK(CAST(vst_dt AS DATE))
+            WHERE ptmiindt IS NOT NULL AND LENGTH(ptmiindt) = 8
+                AND TRY_CAST(ptmiindt AS DATE) IS NOT NULL
+            GROUP BY DAYOFWEEK(CAST(ptmiindt AS DATE))
             ORDER BY weekday
             """
             
@@ -323,12 +323,12 @@ class ComparisonDashboardEngine:
             # 시간별 패턴
             hourly_query = f"""
             SELECT 
-                CAST(SUBSTR(vst_tm, 1, 2) AS INTEGER) as hour,
+                CAST(SUBSTR(ptmiintm, 1, 2) AS INTEGER) as hour,
                 COUNT(*) as count
             FROM {table_name}
-            WHERE vst_tm IS NOT NULL AND LENGTH(vst_tm) >= 4
-                AND SUBSTR(vst_tm, 1, 2) BETWEEN '00' AND '23'
-            GROUP BY CAST(SUBSTR(vst_tm, 1, 2) AS INTEGER)
+            WHERE ptmiintm IS NOT NULL AND LENGTH(ptmiintm) >= 4
+                AND SUBSTR(ptmiintm, 1, 2) BETWEEN '00' AND '23'
+            GROUP BY CAST(SUBSTR(ptmiintm, 1, 2) AS INTEGER)
             ORDER BY hour
             """
             
@@ -569,7 +569,7 @@ class ComparisonDashboardEngine:
                     comparisons['ktas_comparison'] = self.perform_statistical_comparison(
                         original_clinical['ktas_distribution'],
                         synthetic_clinical['ktas_distribution'],
-                        'ktas_no', 'count', 'KTAS Distribution Comparison'
+                        'ptmikts1', 'count', 'KTAS Distribution Comparison'
                     )
                 
                 # 시간적 패턴 비교

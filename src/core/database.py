@@ -236,6 +236,14 @@ class DatabaseManager:
         except Exception as e:
             self.logger.warning(f"Database optimization failed: {e}")
     
+    def create_nedis4_view(self, source_table: str = 'nedis_original.nedis2017',
+                           view_name: str = 'nedis_original.emihptmi'):
+        """Create NEDIS 4.0 VIEW over source sample table"""
+        from .nedis4_converter import create_source_view_sql
+        view_sql = create_source_view_sql(source_table, view_name)
+        self.execute_query(view_sql)
+        self.logger.info(f"Created NEDIS 4.0 view: {view_name} -> {source_table}")
+
     def close(self):
         """데이터베이스 연결 종료"""
         if self.conn:

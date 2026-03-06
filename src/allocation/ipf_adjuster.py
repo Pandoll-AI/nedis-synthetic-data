@@ -104,10 +104,10 @@ class IPFMarginalAdjuster:
         try:
             allocation_data = self.db.fetch_dataframe("""
                 SELECT 
-                    pat_do_cd, pat_age_gr, pat_sex, emorg_cd, allocated_count
+                    ptmizipc, ptmibrtd, ptmisexx, ptmiemcd, allocated_count
                 FROM nedis_synthetic.hospital_allocations
-                WHERE vst_dt = ?
-                ORDER BY pat_do_cd, pat_age_gr, pat_sex, emorg_cd
+                WHERE ptmiindt = ?
+                ORDER BY ptmizipc, ptmibrtd, ptmisexx, ptmiemcd
             """, [date_str])
             
             if len(allocation_data) == 0:
@@ -115,8 +115,8 @@ class IPFMarginalAdjuster:
             
             # 피벗 테이블로 매트릭스 형태 변환
             matrix = allocation_data.pivot_table(
-                index=['pat_do_cd', 'pat_age_gr', 'pat_sex'],
-                columns='emorg_cd',
+                index=['ptmizipc', 'ptmibrtd', 'ptmisexx'],
+                columns='ptmiemcd',
                 values='allocated_count',
                 fill_value=0
             )
@@ -135,28 +135,28 @@ class IPFMarginalAdjuster:
             # 행 마진: 인구 그룹별 목표 방문 수
             row_margins = self.db.fetch_dataframe("""
                 SELECT 
-                    pat_do_cd, pat_age_gr, pat_sex, synthetic_daily_count
+                    ptmizipc, ptmibrtd, ptmisexx, synthetic_daily_count
                 FROM nedis_synthetic.daily_volumes
-                WHERE vst_dt = ?
-                ORDER BY pat_do_cd, pat_age_gr, pat_sex
+                WHERE ptmiindt = ?
+                ORDER BY ptmizipc, ptmibrtd, ptmisexx
             """, [date_str])
             
             if len(row_margins) == 0:
                 raise ValueError(f"No target row margins found for date: {date_str}")
             
             # 행 마진을 MultiIndex Series로 변환
-            row_margins_series = row_margins.set_index(['pat_do_cd', 'pat_age_gr', 'pat_sex'])['synthetic_daily_count']
+            row_margins_series = row_margins.set_index(['ptmizipc', 'ptmibrtd', 'ptmisexx'])['synthetic_daily_count']
             
             # 열 마진: 병원별 목표 용량 (약간의 여유 포함)
             col_margins = self.db.fetch_dataframe("""
                 SELECT 
-                    emorg_cd,
+                    ptmiemcd,
                     ROUND(daily_capacity_mean + 1.5 * daily_capacity_std) as target_capacity
                 FROM nedis_meta.hospital_capacity
-                ORDER BY emorg_cd
+                ORDER BY ptmiemcd
             """)
             
-            col_margins_series = col_margins.set_index('emorg_cd')['target_capacity']
+            col_margins_series = col_margins.set_index('ptmiemcd')['target_capacity']
             
             self.logger.info(f"Target margins: {len(row_margins_series)} row margins, {len(col_margins_series)} col margins")
             
@@ -339,21 +339,21 @@ class IPFMarginalAdjuster:
             # 기존 할당 데이터 삭제
             self.db.execute_query("""
                 DELETE FROM nedis_synthetic.hospital_allocations 
-                WHERE vst_dt = ?
+                WHERE ptmiindt = ?
             """, [date_str])
             
             # 조정된 할당 데이터 삽입
             update_records = []
             
-            for (pat_do_cd, pat_age_gr, pat_sex), row in adjusted_matrix.iterrows():
-                for emorg_cd, allocated_count in row.items():
+            for (ptmizipc, ptmibrtd, ptmisexx), row in adjusted_matrix.iterrows():
+                for ptmiemcd, allocated_count in row.items():
                     if allocated_count > 0:  # 0인 값은 저장하지 않음
                         update_records.append({
-                            'vst_dt': date_str,
-                            'emorg_cd': emorg_cd,
-                            'pat_do_cd': pat_do_cd,
-                            'pat_age_gr': pat_age_gr,
-                            'pat_sex': pat_sex,
+                            'ptmiindt': date_str,
+                            'ptmiemcd': ptmiemcd,
+                            'ptmizipc': ptmizipc,
+                            'ptmibrtd': ptmibrtd,
+                            'ptmisexx': ptmisexx,
                             'allocated_count': int(allocated_count),
                             'overflow_received': 0,  # IPF 조정 후이므로 초기화
                             'allocation_method': 'ipf_adjusted'
@@ -363,11 +363,11 @@ class IPFMarginalAdjuster:
             for record in update_records:
                 self.db.execute_query("""
                     INSERT INTO nedis_synthetic.hospital_allocations
-                    (vst_dt, emorg_cd, pat_do_cd, pat_age_gr, pat_sex, 
+                    (ptmiindt, ptmiemcd, ptmizipc, ptmibrtd, ptmisexx, 
                      allocated_count, overflow_received, allocation_method)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (record['vst_dt'], record['emorg_cd'], record['pat_do_cd'],
-                      record['pat_age_gr'], record['pat_sex'], record['allocated_count'],
+                """, (record['ptmiindt'], record['ptmiemcd'], record['ptmizipc'],
+                      record['ptmibrtd'], record['ptmisexx'], record['allocated_count'],
                       record['overflow_received'], record['allocation_method']))
             
             self.logger.info(f"Updated {len(update_records)} allocation records")
@@ -382,16 +382,16 @@ class IPFMarginalAdjuster:
         try:
             # 조정된 할당 결과 로드
             adjusted_data = self.db.fetch_dataframe("""
-                SELECT pat_do_cd, pat_age_gr, pat_sex, emorg_cd, allocated_count
+                SELECT ptmizipc, ptmibrtd, ptmisexx, ptmiemcd, allocated_count
                 FROM nedis_synthetic.hospital_allocations
-                WHERE vst_dt = ?
+                WHERE ptmiindt = ?
             """, [date_str])
             
             if len(adjusted_data) == 0:
                 return {'valid': False, 'reason': 'No adjusted data'}
             
             # 행 마진 검증 (인구 그룹별 총 방문 수)
-            actual_row_sums = adjusted_data.groupby(['pat_do_cd', 'pat_age_gr', 'pat_sex'])['allocated_count'].sum()
+            actual_row_sums = adjusted_data.groupby(['ptmizipc', 'ptmibrtd', 'ptmisexx'])['allocated_count'].sum()
             target_row_sums = target_margins['row_margins']
             
             common_groups = actual_row_sums.index.intersection(target_row_sums.index)
@@ -400,7 +400,7 @@ class IPFMarginalAdjuster:
             mean_row_error = row_errors.mean() if len(row_errors) > 0 else 0
             
             # 열 마진 검증 (병원별 총 할당 수)
-            actual_col_sums = adjusted_data.groupby('emorg_cd')['allocated_count'].sum()
+            actual_col_sums = adjusted_data.groupby('ptmiemcd')['allocated_count'].sum()
             target_col_sums = target_margins['col_margins']
             
             common_hospitals = actual_col_sums.index.intersection(target_col_sums.index)

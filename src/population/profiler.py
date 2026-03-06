@@ -58,24 +58,24 @@ class NEDISProfiler:
         query = """
         INSERT INTO nedis_meta.population_margins
         SELECT 
-            pat_do_cd,
-            pat_age_gr,
-            pat_sex,
+            ptmizipc,
+            ptmibrtd,
+            ptmisexx,
             COUNT(*) as yearly_visits,
             -- 계절별 가중치 계산 (YYYYMMDD 형식을 DATE로 변환)
-            SUM(CASE WHEN MONTH(STRPTIME(vst_dt, '%Y%m%d')) IN (3,4,5) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) as seasonal_weight_spring,
-            SUM(CASE WHEN MONTH(STRPTIME(vst_dt, '%Y%m%d')) IN (6,7,8) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) as seasonal_weight_summer,
-            SUM(CASE WHEN MONTH(STRPTIME(vst_dt, '%Y%m%d')) IN (9,10,11) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) as seasonal_weight_fall,
-            SUM(CASE WHEN MONTH(STRPTIME(vst_dt, '%Y%m%d')) IN (12,1,2) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) as seasonal_weight_winter,
+            SUM(CASE WHEN MONTH(STRPTIME(ptmiindt, '%Y%m%d')) IN (3,4,5) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) as seasonal_weight_spring,
+            SUM(CASE WHEN MONTH(STRPTIME(ptmiindt, '%Y%m%d')) IN (6,7,8) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) as seasonal_weight_summer,
+            SUM(CASE WHEN MONTH(STRPTIME(ptmiindt, '%Y%m%d')) IN (9,10,11) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) as seasonal_weight_fall,
+            SUM(CASE WHEN MONTH(STRPTIME(ptmiindt, '%Y%m%d')) IN (12,1,2) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) as seasonal_weight_winter,
             -- 요일별 가중치 계산  
-            SUM(CASE WHEN DAYOFWEEK(STRPTIME(vst_dt, '%Y%m%d')) IN (1,7) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) as weekend_weight,
-            (1 - SUM(CASE WHEN DAYOFWEEK(STRPTIME(vst_dt, '%Y%m%d')) IN (1,7) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*)) as weekday_weight
+            SUM(CASE WHEN DAYOFWEEK(STRPTIME(ptmiindt, '%Y%m%d')) IN (1,7) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*) as weekend_weight,
+            (1 - SUM(CASE WHEN DAYOFWEEK(STRPTIME(ptmiindt, '%Y%m%d')) IN (1,7) THEN 1 ELSE 0 END)::DOUBLE / COUNT(*)) as weekday_weight
         FROM nedis_original.nedis2017
-        WHERE pat_do_cd != '' AND pat_do_cd IS NOT NULL
-          AND pat_age_gr != '' AND pat_age_gr IS NOT NULL
-          AND pat_sex IN ('M', 'F')
-          AND vst_dt IS NOT NULL AND vst_dt != ''
-        GROUP BY pat_do_cd, pat_age_gr, pat_sex
+        WHERE ptmizipc != '' AND ptmizipc IS NOT NULL
+          AND ptmibrtd != '' AND ptmibrtd IS NOT NULL
+          AND ptmisexx IN ('1', '2')
+          AND ptmiindt IS NOT NULL AND ptmiindt != ''
+        GROUP BY ptmizipc, ptmibrtd, ptmisexx
         HAVING COUNT(*) >= 10  -- 최소 10개 레코드가 있는 조합만 포함
         """
         
@@ -115,14 +115,14 @@ class NEDISProfiler:
             # 1. 기본 병원 정보 삽입/업데이트
             hospital_info_query = """
             INSERT OR REPLACE INTO nedis_meta.hospital_capacity 
-                (emorg_cd, hospname, gubun, adr)
+                (ptmiemcd, hospname, gubun, adr)
             SELECT DISTINCT 
-                emorg_cd, 
+                ptmiemcd, 
                 COALESCE(hospname, '') as hospname, 
                 COALESCE(gubun, '') as gubun, 
                 COALESCE(adr, '') as adr
             FROM nedis_original.nedis2017
-            WHERE emorg_cd != '' AND emorg_cd IS NOT NULL
+            WHERE ptmiemcd != '' AND ptmiemcd IS NOT NULL
             """
             
             self.db.execute_query(hospital_info_query)
@@ -138,28 +138,28 @@ class NEDISProfiler:
             FROM (
                 WITH daily_counts AS (
                     SELECT 
-                        emorg_cd,
-                        vst_dt,
+                        ptmiemcd,
+                        ptmiindt,
                         COUNT(*) as daily_visits,
-                        SUM(CASE WHEN ktas_fstu = '1' THEN 1 ELSE 0 END) as ktas1_count,
-                        SUM(CASE WHEN ktas_fstu = '2' THEN 1 ELSE 0 END) as ktas2_count
+                        SUM(CASE WHEN ptmikts1 = '1' THEN 1 ELSE 0 END) as ktas1_count,
+                        SUM(CASE WHEN ptmikts1 = '2' THEN 1 ELSE 0 END) as ktas2_count
                     FROM nedis_original.nedis2017
-                    WHERE emorg_cd != '' AND emorg_cd IS NOT NULL
-                      AND vst_dt != '' AND vst_dt IS NOT NULL
-                    GROUP BY emorg_cd, vst_dt
+                    WHERE ptmiemcd != '' AND ptmiemcd IS NOT NULL
+                      AND ptmiindt != '' AND ptmiindt IS NOT NULL
+                    GROUP BY ptmiemcd, ptmiindt
                     HAVING COUNT(*) > 0
                 )
                 SELECT 
-                    emorg_cd,
+                    ptmiemcd,
                     ROUND(AVG(daily_visits))::INTEGER as daily_capacity_mean,
                     GREATEST(1, ROUND(STDDEV(daily_visits)))::INTEGER as daily_capacity_std,
                     ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ktas1_count))::INTEGER as ktas1_capacity,
                     ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ktas2_count))::INTEGER as ktas2_capacity
                 FROM daily_counts
-                GROUP BY emorg_cd
+                GROUP BY ptmiemcd
                 HAVING COUNT(*) >= 30  -- 최소 30일 데이터가 있는 병원만
             ) AS stats
-            WHERE nedis_meta.hospital_capacity.emorg_cd = stats.emorg_cd
+            WHERE nedis_meta.hospital_capacity.ptmiemcd = stats.ptmiemcd
             """
             
             self.db.execute_query(stats_query)
@@ -232,7 +232,7 @@ class NEDISProfiler:
             self.logger.info(f"Found {total_records:,} records in original data")
             
             # 필수 컬럼 존재 확인
-            required_columns = ['pat_do_cd', 'pat_age_gr', 'pat_sex', 'vst_dt', 'emorg_cd']
+            required_columns = ['ptmizipc', 'ptmibrtd', 'ptmisexx', 'ptmiindt', 'ptmiemcd']
             schema_df = self.db.fetch_dataframe("DESCRIBE nedis_original.nedis2017")
             existing_columns = set(schema_df['column_name'].tolist())
             
@@ -358,11 +358,11 @@ class NEDISProfiler:
             
             # 시도별 분포 (상위 10개)
             region_query = """
-            SELECT pat_do_cd, COUNT(*) as count,
+            SELECT ptmizipc, COUNT(*) as count,
                    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
             FROM nedis_original.nedis2017
-            WHERE pat_do_cd != '' AND pat_do_cd IS NOT NULL
-            GROUP BY pat_do_cd
+            WHERE ptmizipc != '' AND ptmizipc IS NOT NULL
+            GROUP BY ptmizipc
             ORDER BY count DESC
             LIMIT 10
             """
@@ -370,34 +370,34 @@ class NEDISProfiler:
             
             # 성별 분포
             gender_query = """
-            SELECT pat_sex, COUNT(*) as count,
+            SELECT ptmisexx, COUNT(*) as count,
                    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
             FROM nedis_original.nedis2017
-            WHERE pat_sex IN ('M', 'F')
-            GROUP BY pat_sex
-            ORDER BY pat_sex
+            WHERE ptmisexx IN ('1', '2')
+            GROUP BY ptmisexx
+            ORDER BY ptmisexx
             """
             stats['gender_distribution'] = self.db.fetch_dataframe(gender_query).to_dict('records')
             
             # KTAS 분포
             ktas_query = """
-            SELECT ktas_fstu, COUNT(*) as count, 
+            SELECT ptmikts1, COUNT(*) as count, 
                    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
             FROM nedis_original.nedis2017
-            WHERE ktas_fstu != '' AND ktas_fstu IS NOT NULL
-            GROUP BY ktas_fstu
-            ORDER BY ktas_fstu
+            WHERE ptmikts1 != '' AND ptmikts1 IS NOT NULL
+            GROUP BY ptmikts1
+            ORDER BY ptmikts1
             """
             stats['ktas_distribution'] = self.db.fetch_dataframe(ktas_query).to_dict('records')
             
             # 연령군 분포
             age_query = """
-            SELECT pat_age_gr, COUNT(*) as count,
+            SELECT ptmibrtd, COUNT(*) as count,
                    ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) as percentage
             FROM nedis_original.nedis2017
-            WHERE pat_age_gr != '' AND pat_age_gr IS NOT NULL
-            GROUP BY pat_age_gr
-            ORDER BY pat_age_gr
+            WHERE ptmibrtd != '' AND ptmibrtd IS NOT NULL
+            GROUP BY ptmibrtd
+            ORDER BY ptmibrtd
             """
             stats['age_distribution'] = self.db.fetch_dataframe(age_query).to_dict('records')
             
@@ -426,10 +426,10 @@ class NEDISProfiler:
             
             # 시도별 조합 수
             region_combinations_query = """
-            SELECT pat_do_cd, COUNT(*) as combinations,
+            SELECT ptmizipc, COUNT(*) as combinations,
                    SUM(yearly_visits) as total_visits
             FROM nedis_meta.population_margins
-            GROUP BY pat_do_cd
+            GROUP BY ptmizipc
             ORDER BY total_visits DESC
             LIMIT 10
             """
@@ -489,20 +489,20 @@ class NEDISProfiler:
             # 결측값 분석 (원본 데이터)
             missing_query = """
             SELECT 
-                'pat_do_cd' as field, 
-                SUM(CASE WHEN pat_do_cd = '' OR pat_do_cd IS NULL THEN 1 ELSE 0 END) as missing_count,
+                'ptmizipc' as field, 
+                SUM(CASE WHEN ptmizipc = '' OR ptmizipc IS NULL THEN 1 ELSE 0 END) as missing_count,
                 COUNT(*) as total_count
             FROM nedis_original.nedis2017
             UNION ALL
             SELECT 
-                'pat_age_gr', 
-                SUM(CASE WHEN pat_age_gr = '' OR pat_age_gr IS NULL THEN 1 ELSE 0 END),
+                'ptmibrtd', 
+                SUM(CASE WHEN ptmibrtd = '' OR ptmibrtd IS NULL THEN 1 ELSE 0 END),
                 COUNT(*)
             FROM nedis_original.nedis2017
             UNION ALL
             SELECT 
-                'pat_sex', 
-                SUM(CASE WHEN pat_sex NOT IN ('M', 'F') THEN 1 ELSE 0 END),
+                'ptmisexx', 
+                SUM(CASE WHEN ptmisexx NOT IN ('1', '2') THEN 1 ELSE 0 END),
                 COUNT(*)
             FROM nedis_original.nedis2017
             """

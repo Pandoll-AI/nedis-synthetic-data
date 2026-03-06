@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 
 
 DEFAULT_DB = 'nedis_sample.duckdb'
-ORIG_TABLE = 'nedis_original.nedis2017'
+ORIG_TABLE = 'nedis_original.emihptmi'
 SYN_TABLE = 'nedis_synthetic.clinical_records'
 
 
@@ -59,7 +59,7 @@ def fig_to_base64(fig) -> str:
     return base64.b64encode(buf.read()).decode('ascii')
 
 
-def parse_timestamp(df: pd.DataFrame, date_col: str = 'vst_dt', time_col: str = 'vst_tm') -> pd.Series:
+def parse_timestamp(df: pd.DataFrame, date_col: str = 'ptmiindt', time_col: str = 'ptmiintm') -> pd.Series:
     if date_col not in df.columns or time_col not in df.columns:
         return pd.Series([], dtype='datetime64[ns]')
     dt = pd.to_datetime(df[date_col].astype(str), format='%Y%m%d', errors='coerce')
@@ -78,7 +78,7 @@ def inter_arrival_minutes(ts: pd.Series) -> pd.Series:
     return diffs
 
 
-def hourly_distribution(df: pd.DataFrame, time_col: str = 'vst_tm') -> pd.Series:
+def hourly_distribution(df: pd.DataFrame, time_col: str = 'ptmiintm') -> pd.Series:
     if time_col not in df.columns:
         return pd.Series([], dtype=float)
     tm = df[time_col].astype(str).str.pad(4, fillchar='0')
@@ -140,8 +140,8 @@ def index():
 
     # Categorical columns to compare (if present)
     cat_cols = [
-        'pat_age_gr', 'pat_sex', 'pat_do_cd', 'ktas_fstu', 'emtrt_rust',
-        'vst_meth', 'msypt', 'main_trt_p', 'emorg_cd'
+        'ptmibrtd', 'ptmisexx', 'ptmizipc', 'ptmikts1', 'ptmiemrt',
+        'ptmiinmn', 'ptmimnsy', 'ptmidept', 'ptmiemcd'
     ]
 
     comparisons = []

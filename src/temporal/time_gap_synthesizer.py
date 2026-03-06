@@ -98,21 +98,21 @@ class TimeGapSynthesizer:
         logger.info("Analyzing time gap patterns from original data...")
         
         # Get source table
-        source_table = self.config.get('original.source_table', 'nedis_data.nedis2017')
+        source_table = self.config.get('original.source_table', 'nedis_original.emihptmi')
         
         query = f"""
         SELECT 
-            ktas01,
-            emtrt_rust,
-            vst_dt, vst_tm,
-            ocur_dt, ocur_tm,
-            otrm_dt, otrm_tm,
-            inpat_dt, inpat_tm,
+            ptmikpr1,
+            ptmiemrt,
+            ptmiindt, ptmiintm,
+            ptmiakdt, ptmiaktm,
+            ptmiotdt, ptmiottm,
+            ptmihsdt, ptmihstm,
             otpat_dt, otpat_tm
         FROM {source_table}
-        WHERE ktas01 IS NOT NULL 
-            AND ktas01 >= 1 
-            AND ktas01 <= 5
+        WHERE ptmikpr1 IS NOT NULL 
+            AND ptmikpr1 >= 1 
+            AND ptmikpr1 <= 5
         LIMIT 50000
         """
         
@@ -120,16 +120,16 @@ class TimeGapSynthesizer:
         
         # Parse ALL datetime columns
         df['vst_datetime'] = df.apply(
-            lambda x: self._parse_datetime(x['vst_dt'], x['vst_tm']), axis=1
+            lambda x: self._parse_datetime(x['ptmiindt'], x['ptmiintm']), axis=1
         )
         df['ocur_datetime'] = df.apply(
-            lambda x: self._parse_datetime(x['ocur_dt'], x['ocur_tm']), axis=1
+            lambda x: self._parse_datetime(x['ptmiakdt'], x['ptmiaktm']), axis=1
         )
         df['otrm_datetime'] = df.apply(
-            lambda x: self._parse_datetime(x['otrm_dt'], x['otrm_tm']), axis=1
+            lambda x: self._parse_datetime(x['ptmiotdt'], x['ptmiottm']), axis=1
         )
         df['inpat_datetime'] = df.apply(
-            lambda x: self._parse_datetime(x['inpat_dt'], x['inpat_tm']), axis=1
+            lambda x: self._parse_datetime(x['ptmihsdt'], x['ptmihstm']), axis=1
         )
         df['otpat_datetime'] = df.apply(
             lambda x: self._parse_datetime(x['otpat_dt'], x['otpat_tm']), axis=1
@@ -155,9 +155,9 @@ class TimeGapSynthesizer:
         
         # Level 1: KTAS + Treatment Result
         for ktas in range(1, 6):
-            for result in df['emtrt_rust'].unique():
+            for result in df['ptmiemrt'].unique():
                 if pd.notna(result):
-                    mask = (df['ktas01'] == ktas) & (df['emtrt_rust'] == result)
+                    mask = (df['ptmikpr1'] == ktas) & (df['ptmiemrt'] == result)
                     subset = df[mask]
                     
                     if len(subset) >= self.time_config.min_sample_size:
@@ -166,7 +166,7 @@ class TimeGapSynthesizer:
         
         # Level 2: KTAS only
         for ktas in range(1, 6):
-            subset = df[df['ktas01'] == ktas]
+            subset = df[df['ptmikpr1'] == ktas]
             if len(subset) >= self.time_config.min_sample_size:
                 key = f"ktas_{ktas}"
                 patterns[key] = self._extract_distribution_params(subset)
@@ -271,7 +271,7 @@ class TimeGapSynthesizer:
         for i in range(n_patients):
             ktas = str(int(ktas_levels[i]))
             result = str(treatment_results[i]) if pd.notna(treatment_results[i]) else None
-            vst_dt = visit_datetimes.iloc[i]
+            ptmiindt = visit_datetimes.iloc[i]
             
             # Get appropriate distribution using hierarchical fallback
             dist_params = self._get_hierarchical_distribution(ktas, result)
@@ -283,9 +283,9 @@ class TimeGapSynthesizer:
                 'er_stay'
             )
             
-            if pd.notna(vst_dt) and er_stay_minutes is not None:
-                otrm_dt = vst_dt + timedelta(minutes=er_stay_minutes)
-                otrm_datetimes.append(otrm_dt)
+            if pd.notna(ptmiindt) and er_stay_minutes is not None:
+                ptmiotdt = ptmiindt + timedelta(minutes=er_stay_minutes)
+                otrm_datetimes.append(ptmiotdt)
             else:
                 otrm_datetimes.append(None)
             
@@ -297,9 +297,9 @@ class TimeGapSynthesizer:
                     'admit'
                 )
                 
-                if pd.notna(vst_dt) and admit_minutes is not None:
-                    inpat_dt = vst_dt + timedelta(minutes=admit_minutes)
-                    inpat_datetimes.append(inpat_dt)
+                if pd.notna(ptmiindt) and admit_minutes is not None:
+                    ptmihsdt = ptmiindt + timedelta(minutes=admit_minutes)
+                    inpat_datetimes.append(ptmihsdt)
                 else:
                     inpat_datetimes.append(None)
             else:
@@ -312,16 +312,16 @@ class TimeGapSynthesizer:
         })
         
         # Convert to NEDIS format (separate date and time columns) - use YYYYMMDD format
-        result_df['otrm_dt'] = result_df['otrm_datetime'].apply(
+        result_df['ptmiotdt'] = result_df['otrm_datetime'].apply(
             lambda x: x.strftime('%Y%m%d') if pd.notna(x) else None
         )
-        result_df['otrm_tm'] = result_df['otrm_datetime'].apply(
+        result_df['ptmiottm'] = result_df['otrm_datetime'].apply(
             lambda x: x.strftime('%H%M') if pd.notna(x) else None
         )
-        result_df['inpat_dt'] = result_df['inpat_datetime'].apply(
+        result_df['ptmihsdt'] = result_df['inpat_datetime'].apply(
             lambda x: x.strftime('%Y%m%d') if pd.notna(x) else None
         )
-        result_df['inpat_tm'] = result_df['inpat_datetime'].apply(
+        result_df['ptmihstm'] = result_df['inpat_datetime'].apply(
             lambda x: x.strftime('%H%M') if pd.notna(x) else None
         )
         

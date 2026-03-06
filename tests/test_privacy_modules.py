@@ -45,10 +45,10 @@ class TestIdentifierManager:
         
         # Create test dataframe with direct identifiers
         df = pd.DataFrame({
-            'pat_reg_no': ['P001', 'P002', 'P003'],
-            'pat_brdt': ['19800101', '19900202', '19700303'],
+            'ptmiidno': ['P001', 'P002', 'P003'],
+            'ptmibrtd': ['19800101', '19900202', '19700303'],
             'pat_age': [37, 27, 47],
-            'pat_sex': ['M', 'F', 'M'],
+            'ptmisexx': ['1', '2', '1'],
             'index_key': [1, 2, 3]
         })
         
@@ -56,9 +56,9 @@ class TestIdentifierManager:
         anon_df = manager.anonymize_dataframe(df)
         
         # Check direct identifiers removed
-        assert 'pat_reg_no' not in anon_df.columns
+        assert 'ptmiidno' not in anon_df.columns
         assert 'index_key' not in anon_df.columns
-        assert 'pat_brdt' not in anon_df.columns
+        assert 'ptmibrtd' not in anon_df.columns
         
         # Check synthetic ID added
         assert 'synthetic_id' in anon_df.columns
@@ -72,7 +72,7 @@ class TestIdentifierManager:
         df = pd.DataFrame({
             'synthetic_id': ['SYN_001', 'SYN_002'],
             'pat_age': [30, 40],
-            'pat_sex': ['M', 'F']
+            'ptmisexx': ['1', '2']
         })
         
         validation = manager.validate_anonymization(df)
@@ -352,10 +352,10 @@ class TestIntegration:
         n_records = 100
         
         df = pd.DataFrame({
-            'pat_reg_no': [f'P{i:04d}' for i in range(n_records)],
+            'ptmiidno': [f'P{i:04d}' for i in range(n_records)],
             'pat_age': np.random.randint(18, 80, n_records),
-            'pat_sex': np.random.choice(['M', 'F'], n_records),
-            'pat_sarea': np.random.choice(['110101', '110102', '210101', '210102'], n_records),
+            'ptmisexx': np.random.choice(['1', '2'], n_records),
+            'ptmizipc': np.random.choice(['110101', '110102', '210101', '210102'], n_records),
             'ktas_lv': np.random.choice([1, 2, 3, 4, 5], n_records),
             'sbp': np.random.normal(120, 20, n_records),
             'dbp': np.random.normal(80, 10, n_records)
@@ -364,7 +364,7 @@ class TestIntegration:
         # Step 1: Identifier management
         id_manager = IdentifierManager()
         df = id_manager.anonymize_dataframe(df)
-        assert 'pat_reg_no' not in df.columns
+        assert 'ptmiidno' not in df.columns
         assert 'synthetic_id' in df.columns
         
         # Step 2: Generalization
@@ -372,11 +372,11 @@ class TestIntegration:
         df['pat_age'] = age_gen.generalize_series(df['pat_age'], method='random')
         
         geo_gen = GeographicGeneralizer()
-        df['pat_sarea'] = geo_gen.generalize_series(df['pat_sarea'], 'district')
+        df['ptmizipc'] = geo_gen.generalize_series(df['ptmizipc'], 'district')
         
         # Step 3: K-anonymity enforcement
         k_enforcer = KAnonymityEnforcer(k_threshold=3)
-        df, _ = k_enforcer.enforce(df, ['pat_age', 'pat_sex', 'pat_sarea'])
+        df, _ = k_enforcer.enforce(df, ['pat_age', 'ptmisexx', 'ptmizipc'])
         
         # Step 4: Differential privacy
         dp = DifferentialPrivacy(epsilon=1.0)
@@ -390,7 +390,7 @@ class TestIntegration:
         validator = PrivacyValidator(k_threshold=3)
         result = validator.validate(
             df,
-            quasi_identifiers=['pat_age', 'pat_sex', 'pat_sarea']
+            quasi_identifiers=['pat_age', 'ptmisexx', 'ptmizipc']
         )
         
         # Check privacy guarantees

@@ -47,3 +47,13 @@
 - Run and test with synthetic or sample data where possible.
 - Never commit database files, logs, caches, or generated outputs unless explicitly sanitized.
 - Environment overrides supported in `src/core/config.py`: `NEDIS_DB_PATH`, `NEDIS_LOG_LEVEL`, `NEDIS_TARGET_RECORDS`.
+
+## Claude Skill: Comparison Visualization (Implemented)
+- 스킬명: `comparison-visualization`
+- 스킬 정의: `.claude/skills/comparison-visualization/SKILL.md`
+- 상태: **구현 완료** — CLI, Python API, HTML 리포트 모두 사용 가능
+- 핵심 파일:
+  - `src/comparison/visualization.py` — 비교 코어 로직 (`SideBySideComparisonGenerator`)
+  - `scripts/generate_comparison_visualization.py` — CLI 엔트리포인트
+  - `templates/comparison_visualization_report.html` — HTML 템플릿
+- 사용법: `SKILL.md` 참조 또는 `python scripts/generate_comparison_visualization.py --help`

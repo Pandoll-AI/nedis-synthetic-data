@@ -90,29 +90,40 @@ class PrivacyRiskAssessment:
         """원본 데이터 로드"""
         query = f"""
         SELECT *
-        FROM nedis_data.nedis2017
-        LIMIT {sample_size}
+        FROM nedis_original.emihptmi
+        USING SAMPLE {sample_size}
         """
         return self.original_db.fetch_dataframe(query)
-    
+
     def _load_or_generate_synthetic_data(self, orig_data, sample_size):
-        """합성 데이터 로드 또는 생성"""
-        # 실제 합성 프로세스를 시뮬레이션
+        """합성 데이터 로드 또는 시뮬레이션으로 생성"""
+        if self.synthetic_db is not None:
+            query = f"""
+            SELECT *
+            FROM nedis_synthetic.clinical_records
+            USING SAMPLE {sample_size}
+            """
+            try:
+                synth_data = self.synthetic_db.fetch_dataframe(query)
+                if len(synth_data) > 0:
+                    logger.info(f"실제 합성 데이터 로드 완료: {len(synth_data):,}건")
+                    return synth_data
+            except Exception as e:
+                logger.warning(f"합성 DB 로드 실패, 시뮬레이션으로 대체: {e}")
+
+        # 합성 DB 없을 시 시뮬레이션
         synth_data = orig_data.copy()
-        
-        # 직접 식별자 제거 시뮬레이션
-        if 'pat_reg_no' in synth_data.columns:
-            synth_data['pat_reg_no'] = np.random.randint(1000000, 9999999, len(synth_data))
-        
-        # 노이즈 추가
-        numerical_cols = ['pat_age', 'vst_sbp', 'vst_dbp', 'vst_per_pu']
+        if 'ptmiidno' in synth_data.columns:
+            synth_data['ptmiidno'] = np.random.randint(1000000, 9999999, len(synth_data))
+
+        numerical_cols = ['ptmibrtd', 'ptmihibp', 'ptmilobp', 'ptmipuls']
         for col in numerical_cols:
             if col in synth_data.columns:
                 numeric_col = pd.to_numeric(synth_data[col], errors='coerce')
                 valid_mask = numeric_col.notna()
                 noise = np.random.normal(0, numeric_col[valid_mask].std() * 0.1, valid_mask.sum())
                 synth_data.loc[valid_mask, col] = numeric_col[valid_mask] + noise
-        
+
         return synth_data
     
     def _check_direct_identifiers(self, orig_data, synth_data):
@@ -124,9 +135,9 @@ class PrivacyRiskAssessment:
         
         # 직접 식별자 목록
         direct_identifiers = [
-            'pat_reg_no',  # 환자 등록 번호
+            'ptmiidno',  # 환자 등록 번호
             'index_key',   # 인덱스 키
-            'pat_brdt'     # 생년월일
+            'ptmibrtd'     # 생년월일
         ]
         
         for identifier in direct_identifiers:
@@ -160,9 +171,9 @@ class PrivacyRiskAssessment:
         
         # 준식별자 조합들
         quasi_id_sets = [
-            ['pat_age', 'pat_sex', 'pat_sarea'],  # 나이+성별+지역
-            ['ktas01', 'pat_age', 'pat_sex'],      # KTAS+나이+성별
-            ['vst_dt', 'pat_sarea', 'ktas01']      # 방문날짜+지역+KTAS
+            ['ptmibrtd', 'ptmisexx', 'ptmizipc'],  # 나이+성별+지역
+            ['ptmikpr1', 'ptmibrtd', 'ptmisexx'],      # KTAS+나이+성별
+            ['ptmiindt', 'ptmizipc', 'ptmikpr1']      # 방문날짜+지역+KTAS
         ]
         
         for qi_set in quasi_id_sets:
@@ -198,8 +209,8 @@ class PrivacyRiskAssessment:
             'risk_level': 'MEDIUM'
         }
         
-        # 주요 준식별자 조합
-        qi_columns = ['pat_age', 'pat_sex', 'pat_sarea', 'ktas01']
+        # 주요 준식별자 조합 (대안 포함)
+        qi_columns = ['ptmibrtd', 'ptmisexx', 'ptmizipc', 'ptmikpr1']
         available_qi = [col for col in qi_columns if col in synth_data.columns]
         
         if len(available_qi) >= 3:
@@ -238,10 +249,17 @@ class PrivacyRiskAssessment:
         }
         
         # 민감 속성 (예: 진단, 증상)
-        sensitive_attr = 'msypt'  # 주증상
-        qi_columns = ['pat_age', 'pat_sex', 'pat_sarea']
-        
-        if sensitive_attr in synth_data.columns and all(col in synth_data.columns for col in qi_columns):
+        sensitive_attr = 'ptmimnsy'  # 주증상
+        qi_candidates = [
+            ['ptmibrtd', 'ptmisexx', 'ptmizipc'],
+            ['ptmibrtd', 'ptmisexx'],
+        ]
+        qi_columns = next(
+            (qc for qc in qi_candidates if all(col in synth_data.columns for col in qc)),
+            []
+        )
+
+        if sensitive_attr in synth_data.columns and qi_columns:
             # 준식별자 그룹별 민감속성 다양성
             qi_groups = synth_data[qi_columns].fillna('NA').astype(str).agg('-'.join, axis=1)
             
@@ -277,27 +295,30 @@ class PrivacyRiskAssessment:
         }
         
         # 희귀 조합 찾기 (KTAS 1 + 특정 증상)
-        if 'ktas01' in synth_data.columns and 'msypt' in synth_data.columns:
+        if 'ptmikpr1' in synth_data.columns and 'ptmimnsy' in synth_data.columns:
             # KTAS 1 환자들
-            ktas1_synth = synth_data[synth_data['ktas01'] == 1]
-            ktas1_orig = orig_data[orig_data['ktas01'] == 1] if 'ktas01' in orig_data.columns else pd.DataFrame()
+            ktas1_synth = synth_data[synth_data['ptmikpr1'] == 1]
+            ktas1_orig = orig_data[orig_data['ptmikpr1'] == 1] if 'ptmikpr1' in orig_data.columns else pd.DataFrame()
             
             if len(ktas1_synth) > 0 and len(ktas1_orig) > 0:
                 # 희귀 조합 체크
                 for idx, synth_row in ktas1_synth.iterrows():
                     # 매칭 가능한 원본 레코드 찾기
                     matches = 0
-                    if 'pat_age' in orig_data.columns and 'pat_sex' in orig_data.columns:
-                        # Convert to numeric for comparison
-                        orig_age = pd.to_numeric(orig_data['pat_age'], errors='coerce')
-                        synth_age = pd.to_numeric(synth_row['pat_age'], errors='coerce')
-                        
-                        if pd.notna(synth_age):
-                            age_match = abs(orig_age - synth_age) <= 2
-                            sex_match = orig_data['pat_sex'] == synth_row['pat_sex']
-                            ktas_match = orig_data['ktas01'] == synth_row['ktas01']
-                            
-                            potential_matches = orig_data[age_match & sex_match & ktas_match]
+                    if 'ptmisexx' in orig_data.columns and 'ptmisexx' in synth_data.columns:
+                        sex_match = orig_data['ptmisexx'] == synth_row['ptmisexx']
+                        ktas_match = orig_data['ptmikpr1'] == synth_row['ptmikpr1']
+
+                        if 'ptmibrtd' in orig_data.columns and 'ptmibrtd' in synth_data.columns:
+                            orig_age = pd.to_numeric(orig_data['ptmibrtd'], errors='coerce')
+                            synth_age = pd.to_numeric(synth_row['ptmibrtd'], errors='coerce')
+                            if pd.notna(synth_age):
+                                age_match = abs(orig_age - synth_age) <= 2
+                                potential_matches = orig_data[age_match & sex_match & ktas_match]
+                                matches = len(potential_matches)
+                        elif 'ptmibrtd' in orig_data.columns and 'ptmibrtd' in synth_data.columns:
+                            age_gr_match = orig_data['ptmibrtd'] == synth_row['ptmibrtd']
+                            potential_matches = orig_data[age_gr_match & sex_match & ktas_match]
                             matches = len(potential_matches)
                     
                     if matches == 1:
@@ -329,10 +350,10 @@ class PrivacyRiskAssessment:
         }
         
         # 시간 패턴 분석
-        time_columns = ['vst_dt', 'vst_tm', 'otrm_dt', 'otrm_tm']
+        time_columns = ['ptmiindt', 'ptmiintm', 'ptmiotdt', 'ptmiottm']
         if all(col in synth_data.columns for col in time_columns[:2]):
             # 방문 시간 패턴
-            synth_data['visit_pattern'] = synth_data['vst_dt'].astype(str) + synth_data['vst_tm'].astype(str)
+            synth_data['visit_pattern'] = synth_data['ptmiindt'].astype(str) + synth_data['ptmiintm'].astype(str)
             
             # 유일한 시간 패턴
             pattern_counts = synth_data['visit_pattern'].value_counts()
@@ -340,10 +361,18 @@ class PrivacyRiskAssessment:
             results['unique_temporal_patterns'] = len(unique_patterns)
             
             # 반복 방문 패턴 (같은 환자로 추정되는)
-            if 'pat_age' in synth_data.columns and 'pat_sex' in synth_data.columns:
-                id_cols = ['pat_age', 'pat_sex']
-                if 'pat_sarea' in synth_data.columns:
-                    id_cols.append('pat_sarea')
+            id_cols = []
+            if 'ptmibrtd' in synth_data.columns:
+                id_cols.append('ptmibrtd')
+            elif 'ptmibrtd' in synth_data.columns:
+                id_cols.append('ptmibrtd')
+            if 'ptmisexx' in synth_data.columns:
+                id_cols.append('ptmisexx')
+            if 'ptmizipc' in synth_data.columns:
+                id_cols.append('ptmizipc')
+            elif 'ptmizipc' in synth_data.columns:
+                id_cols.append('ptmizipc')
+            if len(id_cols) >= 2:
                 patient_id = synth_data[id_cols].fillna('NA').astype(str).agg('-'.join, axis=1)
                 repeated = patient_id.value_counts()
                 results['repeated_visits'] = (repeated > 1).sum()
@@ -520,8 +549,18 @@ class PrivacyRiskAssessment:
 
 def main():
     """재식별 위험 평가 실행"""
-    assessor = PrivacyRiskAssessment()
-    risks = assessor.assess_all_risks(sample_size=10000)
+    import argparse
+    parser = argparse.ArgumentParser(description='Privacy Risk Assessment')
+    parser.add_argument('--original-db', default='nedis_data.duckdb')
+    parser.add_argument('--synthetic-db', default='nedis_synthetic.duckdb')
+    parser.add_argument('--sample-size', type=int, default=10000)
+    args = parser.parse_args()
+
+    assessor = PrivacyRiskAssessment(
+        original_db=args.original_db,
+        synthetic_db=args.synthetic_db
+    )
+    risks = assessor.assess_all_risks(sample_size=args.sample_size)
     
     # 위험 수준에 따른 경고
     overall_risk = risks.get('overall_risk', {}).get('level', 'UNKNOWN')
